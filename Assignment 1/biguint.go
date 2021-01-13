@@ -95,13 +95,13 @@ func (x *BigUInt) Subtract(y *BigUInt) (*BigUInt, error) {
 			xByte, yByte := x.data[i], y.data[i]
 			if xByte < yByte {
 				// find nearest borrow byte
-				carryInd := i+1
-				for x.data[carryInd] == 0 {
-					carryInd++
+				borrowInd := i+1
+				for x.data[borrowInd] == 0 {
+					borrowInd++
 				}
-				for carryInd > i {
-					x.data[carryInd]--
-					carryInd--
+				for borrowInd > i {
+					x.data[borrowInd]--
+					borrowInd--
 				}
 				x.data[i] = uint8(256 + int(xByte) - int(yByte))
 			} else {

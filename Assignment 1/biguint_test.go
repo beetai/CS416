@@ -4,6 +4,7 @@ package biguint
 
 import (
 	"fmt"
+	"math/rand"
 	"reflect"
 	"testing"
 )
@@ -76,6 +77,48 @@ func TestString(t *testing.T) {
 	}
 }
 
+func TestCopy(t *testing.T) {
+
+	type Test struct {
+		input []uint8
+	}
+
+	tests := []Test{
+		{[]uint8{0xff}},
+		{[]uint8{0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff}},
+		{[]uint8{0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff}},
+		{[]uint8{0x21, 0x43, 0x65, 0x87, 0x78, 0x56, 0x34, 0x12}},
+	}
+
+	for _, test := range tests {
+		t.Run(fmt.Sprintf("0x%x", test.input), func(t *testing.T) {
+			var source BigUInt
+			source.data = test.input
+			dest := source.Copy()
+
+			if len(dest.data) != len(source.data) {
+				t.Fatalf("Copy Failed, copied bytes: %d; Expected: %d ", len(dest.data), len(source.data))
+			}
+
+			if source.String() != dest.String() {
+				t.Fatalf("%s, does not equal expected value %s", dest.String(), source.String())
+			}
+
+			/*
+			* Check if both piont to the same slice object
+			* Now modify dest, and check if source and dest still match
+			 */
+			rindex := rand.Intn(len(dest.data))
+			dest.data[rindex]++
+
+			if source.data[rindex] == dest.data[rindex] {
+
+				t.Fatal("Both Source and Destination point to the same object")
+			}
+		})
+	}
+}
+
 func TestAdd(t *testing.T) {
 	type Test struct {
 		lhs      uint64
@@ -120,6 +163,8 @@ func TestSubtract(t *testing.T) {
 		{0x101, 0x200, "", ErrUnderflow},
 		{0xffffffff_ffffffff, 0xffffffff_ffffffff, "0x0", nil},
 		{0xf0000000, 0xf0000001, "", ErrUnderflow},
+		{0xffffff_ffffffff, 0xffffff_ffffffff, "0x0", nil},
+		{0xffffffff_ffffffff, 0xffffffff_ffffffee, "0x11", nil},
 	}
 
 	for _, test := range tests {
