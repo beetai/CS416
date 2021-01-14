@@ -3,6 +3,7 @@ package biguint
 import (
 	"errors"
 	"fmt"
+	"math"
 )
 
 // BigUInt type definition, containing a slice of unsigned bytes
@@ -49,7 +50,12 @@ func NewBigUInt(i uint64) *BigUInt {
 // Increases x by the number represented by y, returning x.
 // Note that x's slice's size may increase as a result of this operation.
 func (x *BigUInt) Add(y *BigUInt) *BigUInt {
+	digits := int(math.Max(float64(len(x.data)), float64(len(y.data))))
+	fmt.Println(digits)
 	for i, v := range x.data {
+		if len(y.data) - 1 < i {
+			continue
+		}
 		x.data[i] += y.data[i]
 		byteVal := int(v) + int(y.data[i])
 		if byteVal > 255 {
@@ -87,29 +93,40 @@ func (x *BigUInt) Subtract(y *BigUInt) (*BigUInt, error) {
 	yIsLonger := len(x.data) < len(y.data)
 	if yIsLonger || yIsLarger {
 		return nil, ErrUnderflow
-	} else {
-		for i := range x.data {
-			if len(y.data) - 1 < i {
-				continue
-			}
-			xByte, yByte := x.data[i], y.data[i]
-			if xByte < yByte {
-				// find nearest borrow byte
-				borrowInd := i+1
-				for x.data[borrowInd] == 0 {
-					borrowInd++
-				}
-				for borrowInd > i {
-					x.data[borrowInd]--
-					borrowInd--
-				}
-				x.data[i] = uint8(256 + int(xByte) - int(yByte))
-			} else {
-				x.data[i] -= y.data[i]
-			}
-		}
-		return x, nil
 	}
+
+	// trailing zero counter
+	tzc := 0
+	// subtraction algo
+	for i := range x.data {
+		if len(y.data) - 1 < i {
+			continue
+		}
+		xByte, yByte := x.data[i], y.data[i]
+		if xByte < yByte {
+			// find nearest borrow byte
+			borrowInd := i+1
+			for x.data[borrowInd] == 0 {
+				borrowInd++
+			}
+			for borrowInd > i {
+				x.data[borrowInd]--
+				borrowInd--
+			}
+			x.data[i] = uint8(256 + int(xByte) - int(yByte))
+		} else {
+			x.data[i] -= y.data[i]
+		}
+
+		if x.data[i] == 0 {
+			tzc++
+		} else {
+			tzc = 0
+		}
+	}
+	fmt.Printf("trailing zeroes: %d\n", tzc)
+	x.data = x.data[:len(x.data)-tzc]
+	return x, nil
 }
 
 // Bytes provides access to the raw bytes underlying a given BigUInt
@@ -145,5 +162,9 @@ func (x *BigUInt) String() string {
 
 // Copy generates a fully independent (deep) copy of a given BigUInt
 func (x *BigUInt) Copy() *BigUInt {
-	return x
+	copy := &BigUInt{make([]uint8, len(x.data))}
+	for i, v := range x.data {
+		copy.data[i] = v
+	}
+	return copy
 }
