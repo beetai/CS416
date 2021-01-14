@@ -144,7 +144,6 @@ func (x *BigUInt) Subtract(y *BigUInt) (*BigUInt, error) {
 			tzc = 0
 		}
 	}
-	fmt.Printf("trailing zeroes: %d\n", tzc)
 	x.data = x.data[:len(x.data)-tzc]
 	return x, nil
 }
@@ -182,9 +181,9 @@ func (x *BigUInt) String() string {
 
 // Copy generates a fully independent (deep) copy of a given BigUInt
 func (x *BigUInt) Copy() *BigUInt {
-	copy := &BigUInt{make([]uint8, len(x.data))}
+	c := &BigUInt{make([]uint8, len(x.data))}
 	for i, v := range x.data {
-		copy.data[i] = v
+		c.data[i] = v
 	}
-	return copy
+	return c
 }
