@@ -50,20 +50,40 @@ func NewBigUInt(i uint64) *BigUInt {
 // Increases x by the number represented by y, returning x.
 // Note that x's slice's size may increase as a result of this operation.
 func (x *BigUInt) Add(y *BigUInt) *BigUInt {
+	carry := false
 	digits := int(math.Max(float64(len(x.data)), float64(len(y.data))))
-	fmt.Println(digits)
-	for i, v := range x.data {
-		if len(y.data) - 1 < i {
-			continue
-		}
-		x.data[i] += y.data[i]
-		byteVal := int(v) + int(y.data[i])
-		if byteVal > 255 {
-			if i == len(x.data) - 1 {
-				// add byte
-				x.data = append(x.data, 0)
+	for i := 0; i < digits; i++ {
+		if len(x.data) - 1 < i {
+			x.data = append(x.data, y.data[i])
+		} else {
+			if len(y.data) - 1 < i {
+				if carry {
+					x.data[i]++
+					carry = false
+					if x.data[i] == 0 {
+						carry = true
+					}
+				}
+				continue
 			}
-			x.data[i+1]++
+			byteVal := int(x.data[i]) + int(y.data[i])
+			x.data[i] += y.data[i]
+			if carry {
+				x.data[i]++
+				byteVal++
+				carry = false
+			}
+			if byteVal > 255 {
+				if i == len(x.data) - 1 {
+					// add byte
+					x.data = append(x.data, 0)
+				}
+				if i == digits-1 {
+					x.data[i+1]++
+				} else {
+					carry = true
+				}
+			}
 		}
 	}
 	return x
