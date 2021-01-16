@@ -61,7 +61,13 @@ func (x *BigUInt) Add(y *BigUInt) *BigUInt {
 					x.data[i]++
 					carry = false
 					if x.data[i] == 0 {
-						carry = true
+						if i == digits - 1 {
+							// add byte
+							x.data = append(x.data, 0)
+							x.data[i+1]++
+						} else {
+							carry = true
+						}
 					}
 				}
 				continue
@@ -120,6 +126,11 @@ func (x *BigUInt) Subtract(y *BigUInt) (*BigUInt, error) {
 	// subtraction algo
 	for i := range x.data {
 		if len(y.data) - 1 < i {
+			if x.data[i] == 0 {
+				tzc++
+			} else {
+				tzc = 0
+			}
 			continue
 		}
 		xByte, yByte := x.data[i], y.data[i]
