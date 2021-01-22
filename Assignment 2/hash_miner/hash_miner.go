@@ -5,6 +5,8 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"github.com/DistributedClocks/tracing"
+	"math"
+	"sync"
 )
 
 type WorkerStart struct {
@@ -26,20 +28,33 @@ type MiningComplete struct {
 	Secret []uint8
 }
 
-//func worker(tracer *tracing.Tracer, threadId uint8, nonce []uint8, numTrailingZeroes, threadBits uint, group *sync.WaitGroup) {
-//	//defer group.Done()
-//
-//	tracer.RecordAction(WorkerStart{threadId})
-//
-//	for {
-//		start :=
-//		for i := start; i < finish; i++ {
-//
-//		}
-//	}
-//
-//	tracer.RecordAction(WorkerStart{})
-//}
+func worker(tracer *tracing.Tracer, threadId uint8, nonce []uint8, cmpStr string, threadBits uint, answer chan []uint8, done *bool, group *sync.WaitGroup) {
+	defer group.Done()
+
+	tracer.RecordAction(WorkerStart{threadId})
+
+	guessPrefix := []uint8{0}
+
+	for !*done {
+		start := threadId << (8 - threadBits)
+		finish := (threadId + 1) << (8 - threadBits) - 1
+		for i := uint16(start); i <= uint16(finish); i++ {
+			guess := []uint8{uint8(i)}
+			guess = append(guess, guessPrefix...)
+			appendedGuess := append(nonce, guess...)
+			checksum := md5.Sum(appendedGuess)
+			if checkTrailingZeros(checksum, cmpStr) {
+				tracer.RecordAction(WorkerSuccess{threadId, guess})
+				*done = true
+				answer <- guess
+				return
+			}
+		}
+		increment(&guessPrefix)
+	}
+
+	tracer.RecordAction(WorkerCancelled{threadId})
+}
 
 func checkTrailingZeros(checksum [16]byte, cmpStr string) bool {
 	str := hex.EncodeToString(checksum[:])
@@ -71,33 +86,50 @@ func increment(guess *[]uint8) {
 func Mine(tracer *tracing.Tracer, nonce []uint8, numTrailingZeroes, threadBits uint) (secret []uint8, err error) {
 	tracer.RecordAction(MiningBegin{})
 
-	// TODO
-	//var group sync.WaitGroup
-	//for i := 0; i < int(math.Pow(2, float64(threadBits))); i++ {
-	//	group.Add(1)
-	//	go worker(tracer, uint8(i), nonce, numTrailingZeroes, threadBits, &group)
-	//}
-
-	//guess := []uint8{194, 170, 210, 13}
-	guess := []uint8{0}
-	//guess := []uint8{169, 113, 171, 12}
-
 	var buffer bytes.Buffer
 	for i := 0; i < int(numTrailingZeroes); i++ {
 		buffer.WriteString("0")
 	}
 	cmpStr := buffer.String()
 
-	for {
-		appendedGuess := append(nonce, guess...)
-		checksum := md5.Sum(appendedGuess)
-		if checkTrailingZeros(checksum, cmpStr) {
-			break
-		}
-		increment(&guess)
+	numThr := int(math.Pow(2, float64(threadBits)))
+	answer := make(chan []uint8)
+	done := false
+
+	var group sync.WaitGroup
+	for i := 0; i < numThr; i++ {
+		group.Add(1)
+		go worker(tracer, uint8(i), nonce, cmpStr, threadBits, answer, &done, &group)
 	}
 
-	result := guess
+	// synchronous
+	//guess := []uint8{194, 170, 210, 13}
+	//guess := []uint8{169, 113, 171, 12}
+	//guess := []uint8{0}
+	//
+	//var buffer bytes.Buffer
+	//for i := 0; i < int(numTrailingZeroes); i++ {
+	//	buffer.WriteString("0")
+	//}
+	//cmpStr := buffer.String()
+	//
+	//for {
+	//	appendedGuess := append(nonce, guess...)
+	//	checksum := md5.Sum(appendedGuess)
+	//	if checkTrailingZeros(checksum, cmpStr) {
+	//		break
+	//	}
+	//	increment(&guess)
+	//}
+	//
+	//result := guess
+
+	//result := []uint8{
+
+	//group.Wait()
+
+	result := <-answer
+	group.Wait()
 
 	tracer.RecordAction(MiningComplete{result})
 
