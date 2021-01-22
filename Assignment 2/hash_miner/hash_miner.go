@@ -92,6 +92,7 @@ func Mine(tracer *tracing.Tracer, nonce []uint8, numTrailingZeroes, threadBits u
 	}
 	cmpStr := buffer.String()
 
+	// concurrency implementation
 	numThr := int(math.Pow(2, float64(threadBits)))
 	answer := make(chan []uint8)
 	done := false
@@ -102,16 +103,11 @@ func Mine(tracer *tracing.Tracer, nonce []uint8, numTrailingZeroes, threadBits u
 		go worker(tracer, uint8(i), nonce, cmpStr, threadBits, answer, &done, &group)
 	}
 
+	result := <-answer
+	group.Wait()
+
 	// synchronous
-	//guess := []uint8{194, 170, 210, 13}
-	//guess := []uint8{169, 113, 171, 12}
 	//guess := []uint8{0}
-	//
-	//var buffer bytes.Buffer
-	//for i := 0; i < int(numTrailingZeroes); i++ {
-	//	buffer.WriteString("0")
-	//}
-	//cmpStr := buffer.String()
 	//
 	//for {
 	//	appendedGuess := append(nonce, guess...)
@@ -123,13 +119,6 @@ func Mine(tracer *tracing.Tracer, nonce []uint8, numTrailingZeroes, threadBits u
 	//}
 	//
 	//result := guess
-
-	//result := []uint8{
-
-	//group.Wait()
-
-	result := <-answer
-	group.Wait()
 
 	tracer.RecordAction(MiningComplete{result})
 
