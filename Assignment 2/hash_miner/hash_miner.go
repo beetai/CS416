@@ -28,23 +28,25 @@ type MiningComplete struct {
 	Secret []uint8
 }
 
-func worker(tracer *tracing.Tracer, threadId uint8, nonce []uint8, cmpStr string, threadBits uint, answer chan []uint8, done *bool, group *sync.WaitGroup) {
+func worker(tracer *tracing.Tracer, threadId int, nonce []uint8, cmpStr string, threadBits uint, answer chan []uint8, done *bool, group *sync.WaitGroup) {
 	defer group.Done()
 
-	tracer.RecordAction(WorkerStart{threadId})
+	threadByte := uint8(threadId)
+
+	tracer.RecordAction(WorkerStart{threadByte})
 
 	guessPrefix := []uint8{0}
 
 	for !*done {
 		start := threadId << (8 - threadBits)
-		finish := (threadId + 1) << (8 - threadBits) - 1
-		for i := uint16(start); i <= uint16(finish); i++ {
+		finish := (threadId + 1) << (8 - threadBits)
+		for i := start; i < finish; i++ {
 			guess := []uint8{uint8(i)}
 			guess = append(guess, guessPrefix...)
 			appendedGuess := append(nonce, guess...)
 			checksum := md5.Sum(appendedGuess)
 			if checkTrailingZeros(checksum, cmpStr) {
-				tracer.RecordAction(WorkerSuccess{threadId, guess})
+				tracer.RecordAction(WorkerSuccess{threadByte, guess})
 				*done = true
 				answer <- guess
 				return
@@ -53,7 +55,7 @@ func worker(tracer *tracing.Tracer, threadId uint8, nonce []uint8, cmpStr string
 		increment(&guessPrefix)
 	}
 
-	tracer.RecordAction(WorkerCancelled{threadId})
+	tracer.RecordAction(WorkerCancelled{threadByte})
 }
 
 func checkTrailingZeros(checksum [16]byte, cmpStr string) bool {
@@ -93,20 +95,19 @@ func Mine(tracer *tracing.Tracer, nonce []uint8, numTrailingZeroes, threadBits u
 	cmpStr := buffer.String()
 
 	// concurrency implementation
-	numThr := int(math.Pow(2, float64(threadBits)))
 	answer := make(chan []uint8)
 	done := false
 
 	var group sync.WaitGroup
-	for i := 0; i < numThr; i++ {
+	for i := 0; i < int(math.Pow(2, float64(threadBits))); i++ {
 		group.Add(1)
-		go worker(tracer, uint8(i), nonce, cmpStr, threadBits, answer, &done, &group)
+		go worker(tracer, i, nonce, cmpStr, threadBits, answer, &done, &group)
 	}
 
 	result := <-answer
 	group.Wait()
 
-	// synchronous
+	// synchronous implementation
 	//guess := []uint8{0}
 	//
 	//for {
