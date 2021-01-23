@@ -28,7 +28,7 @@ type MiningComplete struct {
 	Secret []uint8
 }
 
-func worker(tracer *tracing.Tracer, threadId int, nonce []uint8, cmpStr string, threadBits uint, answer chan []uint8, done *bool, group *sync.WaitGroup) {
+func worker(tracer *tracing.Tracer, threadId int, nonce []uint8, cmpStr string, threadBits uint, answer chan []uint8, cancel chan bool, group *sync.WaitGroup) {
 	defer group.Done()
 
 	threadByte := uint8(threadId)
@@ -37,25 +37,30 @@ func worker(tracer *tracing.Tracer, threadId int, nonce []uint8, cmpStr string, 
 
 	guessPrefix := []uint8{0}
 
-	for !*done {
-		start := threadId << (8 - threadBits)
-		finish := (threadId + 1) << (8 - threadBits)
-		for i := start; i < finish; i++ {
-			guess := []uint8{uint8(i)}
-			guess = append(guess, guessPrefix...)
-			appendedGuess := append(nonce, guess...)
-			checksum := md5.Sum(appendedGuess)
-			if checkTrailingZeros(checksum, cmpStr) {
-				tracer.RecordAction(WorkerSuccess{threadByte, guess})
-				*done = true
-				answer <- guess
-				return
+	for {
+		select {
+		case <- cancel:
+			tracer.RecordAction(WorkerCancelled{threadByte})
+			answer <- []uint8{0}
+			return
+		default:
+			start := threadId << (8 - threadBits)
+			finish := (threadId + 1) << (8 - threadBits)
+			for i := start; i < finish; i++ {
+				guess := []uint8{uint8(i)}
+				guess = append(guess, guessPrefix...)
+				appendedGuess := append(nonce, guess...)
+				checksum := md5.Sum(appendedGuess)
+				if checkTrailingZeros(checksum, cmpStr) {
+					tracer.RecordAction(WorkerSuccess{threadByte, guess})
+					answer <- guess
+					<- cancel
+					return
+				}
 			}
+			increment(&guessPrefix)
 		}
-		increment(&guessPrefix)
 	}
-
-	tracer.RecordAction(WorkerCancelled{threadByte})
 }
 
 func checkTrailingZeros(checksum [16]byte, cmpStr string) bool {
@@ -95,16 +100,24 @@ func Mine(tracer *tracing.Tracer, nonce []uint8, numTrailingZeroes, threadBits u
 	cmpStr := buffer.String()
 
 	// concurrency implementation
-	answer := make(chan []uint8)
-	done := false
+	numThr := int(math.Pow(2, float64(threadBits)))
+	answer := make(chan []uint8, numThr)
+	cancel := make(chan bool, numThr)
 
 	var group sync.WaitGroup
-	for i := 0; i < int(math.Pow(2, float64(threadBits))); i++ {
+	for i := 0; i < numThr; i++ {
 		group.Add(1)
-		go worker(tracer, i, nonce, cmpStr, threadBits, answer, &done, &group)
+		go worker(tracer, i, nonce, cmpStr, threadBits, answer, cancel, &group)
 	}
 
-	result := <-answer
+	result := <- answer
+
+	for i := 0; i < numThr; i++ {
+		cancel <- true
+	}
+	for i := 0; i < numThr - 1; i++ {
+		<- answer
+	}
 	group.Wait()
 
 	// synchronous implementation
