@@ -31,7 +31,8 @@ func main() {
 		log.Println(err)
 	}
 
-	for mineResult := range client.NotifyChannel {
+	for i := 0; i < 2; i++ {
+		mineResult := <-client.NotifyChannel
 		log.Println(mineResult)
 	}
 }

@@ -23,20 +23,21 @@ type Client struct {
 	pow           *powlib.POW
 	tracer        *tracing.Tracer
 	initialized   bool
+	tracerConfig  tracing.TracerConfig
 }
 
 func NewClient(config ClientConfig, pow *powlib.POW) *Client {
-	tracer := tracing.NewTracer(tracing.TracerConfig{
+	tracerConfig := tracing.TracerConfig{
 		ServerAddress:  config.TracerServerAddr,
 		TracerIdentity: config.ClientID,
 		Secret:         config.TracerSecret,
-	})
+	}
 	client := &Client{
-		id:          config.ClientID,
-		coordAddr:   config.CoordAddr,
-		pow:         pow,
-		tracer:      tracer,
-		initialized: false,
+		id:           config.ClientID,
+		coordAddr:    config.CoordAddr,
+		pow:          pow,
+		tracerConfig: tracerConfig,
+		initialized:  false,
 	}
 	return client
 }
@@ -46,6 +47,7 @@ func (c *Client) Initialize() error {
 		return errors.New("client has been initialized before")
 	}
 	ch, err := c.pow.Initialize(c.coordAddr, ChCapacity)
+	c.tracer = tracing.NewTracer(c.tracerConfig)
 	c.NotifyChannel = ch
 	c.initialized = true
 	return err
