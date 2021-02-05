@@ -1,7 +1,9 @@
 package distpow
 
 import (
+	"github.com/DistributedClocks/tracing"
 	"log"
+	"math"
 	"net/rpc"
 )
 
@@ -59,22 +61,40 @@ type CoordinatorSuccess struct {
 //	secret                        []uint8
 //}
 
+// Coordinator custom structs
 type Coordinator struct {
-	config CoordinatorConfig
 	//done          chan bool
-	coordToWorker []*rpc.Client
-	answer        chan []uint8
+	//coordToWorker []*rpc.Client
+	config     CoordinatorConfig
+	threadBits uint
+	answer     chan []uint8
+	tracer     *tracing.Tracer
+}
+
+type CoordinatorResultArgs struct {
+	Nonce            []uint8
+	NumTrailingZeros uint
+	WorkerByte       uint8
+	Secret           []uint8
+	JobId            int
 }
 
 func (c *Coordinator) Initialize(config CoordinatorConfig) error {
-	c.config = config
-	coordinatorToWorker, err := rpc.DialHTTP("tcp", string(c.config.Workers[0]))
-	if err != nil {
-		log.Fatal("Connection error: ", err)
-		return err
+	tracerConfig := tracing.TracerConfig{
+		ServerAddress:  config.TracerServerAddr,
+		TracerIdentity: "coordinator",
+		Secret:         config.TracerSecret,
 	}
-	c.coordToWorker = append(c.coordToWorker, coordinatorToWorker)
+	c.config = config
+	//coordinatorToWorker, err := rpc.DialHTTP("tcp", string(c.config.Workers[0]))
+	//if err != nil {
+	//	log.Fatal("Connection error: ", err)
+	//	return err
+	//}
+	//c.coordToWorker = append(c.coordToWorker, coordinatorToWorker)
+	c.tracer = tracing.NewTracer(tracerConfig)
 	c.answer = make(chan []uint8)
+	c.threadBits = uint(math.Log2(float64(len(c.config.Workers))))
 	return nil
 	//return errors.New("not implemented")
 }
@@ -93,10 +113,29 @@ func (c *Coordinator) Mine(args *CoordinatorMine, secret *[]uint8) error {
 
 	//var workerReply []uint8
 
-	log.Println("Coordinator.Mine start")
-	workerArgs := WorkerMine{args.Nonce, args.NumTrailingZeros, 0}
-	c.coordToWorker[0].Go("Worker.Mine", workerArgs, nil, nil)
+	//log.Println("Coordinator.Mine start")
+
+	c.tracer.RecordAction(*args)
+
+	//workerArgs := WorkerMine{args.Nonce, args.NumTrailingZeros, 0}
+	//c.coordToWorker[0].Go("Worker.Mine", workerArgs, nil, nil)
 	//coordinatorToWorker.Go("Worker.Mine", workerArgs, nil, nil)
+
+	for i, port := range c.config.Workers {
+		coordinatorToWorker, err := rpc.DialHTTP("tcp", string(port))
+		if err != nil {
+			log.Fatal("Connection error: ", err)
+			return err
+		}
+
+		workerArgs := WorkerMineArgs{args.Nonce, args.NumTrailingZeros, uint8(i), c.threadBits}
+		c.tracer.RecordAction(CoordinatorWorkerMine{
+			args.Nonce,
+			args.NumTrailingZeros,
+			uint8(i),
+		})
+		coordinatorToWorker.Go("Worker.Mine", workerArgs, nil, nil)
+	}
 
 	//log.Println("finish: ", workerReply)
 
@@ -104,14 +143,27 @@ func (c *Coordinator) Mine(args *CoordinatorMine, secret *[]uint8) error {
 
 	*secret = <-c.answer
 
+	c.tracer.RecordAction(CoordinatorSuccess{
+		Nonce:            args.Nonce,
+		NumTrailingZeros: args.NumTrailingZeros,
+		Secret:           *secret,
+	})
+
 	log.Println(*secret)
 
 	return nil
 }
 
-func (c *Coordinator) Result(args *CoordinatorWorkerResult, unused *uint) error {
-	log.Println("Coordinator.Result called")
-	workerArgs := WorkerMine{args.Nonce, args.NumTrailingZeros, args.WorkerByte}
+func (c *Coordinator) Result(args *CoordinatorResultArgs, unused *uint) error {
+	//log.Println("Coordinator.Result called")
+	//log.Printf("jobId: %d\n", args.JobId)
+	c.tracer.RecordAction(CoordinatorWorkerResult{
+		args.Nonce,
+		args.NumTrailingZeros,
+		args.WorkerByte,
+		args.Secret,
+	})
+	//workerArgs := WorkerCancelArgs{args.Nonce, args.NumTrailingZeros, args.WorkerByte, args.JobId}
 
 	// for loop over all workers????
 	//coordinator, err := rpc.DialHTTP("tcp", "localhost"+c.config.WorkerAPIListenAddr)
@@ -120,11 +172,36 @@ func (c *Coordinator) Result(args *CoordinatorWorkerResult, unused *uint) error 
 	//}
 
 	//coordinator.Go("Worker.Cancel", workerArgs, nil, nil)
-	c.coordToWorker[0].Go("Worker.Cancel", workerArgs, nil, nil)
+	//c.coordToWorker[0].Go("Worker.Cancel", workerArgs, nil, nil)'
+
+	stopped := make(chan *rpc.Call, len(c.config.Workers)-1)
+
+	for i, port := range c.config.Workers {
+		coordinatorToWorker, err := rpc.DialHTTP("tcp", string(port))
+		if err != nil {
+			log.Fatal("Connection error: ", err)
+			return err
+		}
+
+		if uint8(i) != args.WorkerByte {
+			c.tracer.RecordAction(CoordinatorWorkerCancel{
+				args.Nonce,
+				args.NumTrailingZeros,
+				uint8(i),
+			})
+			workerArgs := WorkerCancelArgs{args.Nonce, args.NumTrailingZeros, uint8(i), args.JobId}
+			coordinatorToWorker.Go("Worker.Cancel", workerArgs, nil, stopped)
+		}
+		//coordinatorToWorker.Go("Worker.Cancel", workerArgs, nil, stopped)
+	}
+
+	for i := 0; i < len(c.config.Workers)-1; i++ {
+		<-stopped
+	}
 
 	c.answer <- args.Secret
 
-	log.Println("Coordinator.Result end")
+	//log.Println("Coordinator.Result end")
 
 	return nil
 }

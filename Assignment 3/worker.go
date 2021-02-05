@@ -3,9 +3,11 @@ package distpow
 import (
 	"bytes"
 	"crypto/md5"
-	"fmt"
+	"encoding/hex"
+	"github.com/DistributedClocks/tracing"
 	"log"
 	"net/rpc"
+	"sync"
 )
 
 type WorkerConfig struct {
@@ -67,58 +69,174 @@ type WorkerCancel struct {
 //	//CmpStr                        string
 //}
 
+// https://www.reddit.com/r/golang/comments/a2b4iu/how_to_storeretrieve_channels_in_sync_map/
+type Map struct {
+	syncMap sync.Map
+}
+
+func (m *Map) Load(key int) chan bool {
+	val, ok := m.syncMap.Load(key)
+	if ok {
+		return val.(chan bool)
+	} else {
+		return nil
+	}
+}
+
+func (m *Map) Exists(key int) bool {
+	_, ok := m.syncMap.Load(key)
+	return ok
+}
+
+func (m *Map) Store(key int, value chan bool) {
+	m.syncMap.Store(key, value)
+}
+
+func (m *Map) Delete(key int) {
+	m.syncMap.Delete(key)
+}
+
+//var KillMap Map
+//
+//type KillChannel chan bool
+
+// Worker custom structs
+type WorkerMineArgs struct {
+	Nonce            []uint8
+	NumTrailingZeros uint
+	WorkerByte       uint8
+	ThreadBits       uint
+}
+
+type WorkerCancelArgs struct {
+	Nonce            []uint8
+	NumTrailingZeros uint
+	WorkerByte       uint8
+	JobId            int
+}
+
 type Worker struct {
-	config WorkerConfig
-	done   chan bool
-	//workerToCoord *rpc.Client
+	config        WorkerConfig
+	doneMap       map[int]chan bool
+	nextJobId     int
+	workerToCoord *rpc.Client
+	tracer        *tracing.Tracer
 }
 
 func (w *Worker) Initialize(config WorkerConfig) error {
-	w.config = config
-	//workerToCoord, err := rpc.DialHTTP("tcp", w.config.CoordAddr)
-	//if err != nil {
-	//	log.Fatal("Connection error: ", err)
-	//	return err
-	//}
-	//w.workerToCoord = workerToCoord
-	return nil
-	//return errors.New("not implemented")
-}
-
-func (w *Worker) Mine(args *WorkerMine, unused *uint) error {
-	log.Println("Worker.Mine start")
-	guess := []uint8{0}
-
-	hashStrBuf := new(bytes.Buffer)
-
-	for {
-		appendedGuess := append(args.Nonce, guess...)
-		checksum := md5.Sum(appendedGuess)
-		hashStrBuf.Reset()
-		fmt.Fprintf(hashStrBuf, "%x", checksum)
-		if hasNumZeroesSuffix(hashStrBuf.Bytes(), args.NumTrailingZeros) {
-			break
-		}
-		increment(&guess)
+	tracerConfig := tracing.TracerConfig{
+		ServerAddress:  config.TracerServerAddr,
+		TracerIdentity: config.WorkerID,
+		Secret:         config.TracerSecret,
 	}
-
-	//*secret = guess
-	log.Println("Worker.Mine answer found")
-
+	w.config = config
 	workerToCoord, err := rpc.DialHTTP("tcp", w.config.CoordAddr)
 	if err != nil {
 		log.Fatal("Connection error: ", err)
 		return err
 	}
-	coordArgs := CoordinatorWorkerResult{args.Nonce, args.NumTrailingZeros, args.WorkerByte, guess}
-	workerToCoord.Call("Coordinator.Result", coordArgs, nil)
-
+	w.tracer = tracing.NewTracer(tracerConfig)
+	w.workerToCoord = workerToCoord
+	w.doneMap = make(map[int]chan bool)
+	w.nextJobId = 0
 	return nil
+	//return errors.New("not implemented")
 }
 
-//func (w *Worker) Cancel(args *WorkerCancel, unused *uint) error {
-//	if ()
-//}
+func (w *Worker) Mine(args *WorkerMineArgs, unused *uint) error {
+	//log.Println("Worker.Mine start")
+	w.tracer.RecordAction(WorkerMine{
+		args.Nonce,
+		args.NumTrailingZeros,
+		args.WorkerByte,
+	})
+	//guess := []uint8{0}
+	jobId := w.nextJobId
+	w.doneMap[jobId] = make(chan bool)
+	w.nextJobId++
+
+	var buffer bytes.Buffer
+	for i := 0; i < int(args.NumTrailingZeros); i++ {
+		buffer.WriteString("0")
+	}
+	cmpStr := buffer.String()
+
+	//for {
+	//	appendedGuess := append(args.Nonce, guess...)
+	//	checksum := md5.Sum(appendedGuess)
+	//	hashStrBuf.Reset()
+	//	fmt.Fprintf(hashStrBuf, "%x", checksum)
+	//	if hasNumZeroesSuffix(hashStrBuf.Bytes(), args.NumTrailingZeros) {
+	//		break
+	//	}
+	//	increment(&guess)
+	//}
+
+	guessPrefix := []uint8{0}
+
+	for {
+		select {
+		//case <-w.doneMap.Load(jobId):
+		case <-w.doneMap[jobId]:
+			//tracer.RecordAction(WorkerCancelled{threadByte})
+			//answer <- []uint8{0}
+			//log.Println("Worker.Cancelled")
+			return nil
+		default:
+			start := int(args.WorkerByte) << (8 - args.ThreadBits)
+			finish := int(args.WorkerByte+1) << (8 - args.ThreadBits)
+			for i := start; i < finish; i++ {
+				guess := []uint8{uint8(i)}
+				guess = append(guess, guessPrefix...)
+				appendedGuess := append(args.Nonce, guess...)
+				checksum := md5.Sum(appendedGuess)
+				if checkTrailingZeros(checksum, cmpStr) {
+					//tracer.RecordAction(WorkerSuccess{threadByte, guess})
+					//answer <- guess
+					//<- cancel
+					//log.Printf("Worker.Mine answer found: jobId is %d\n", jobId)
+					coordArgs := CoordinatorResultArgs{args.Nonce, args.NumTrailingZeros, args.WorkerByte, guess, jobId}
+					w.tracer.RecordAction(WorkerResult{
+						args.Nonce,
+						args.NumTrailingZeros,
+						args.WorkerByte,
+						guess,
+					})
+					w.workerToCoord.Go("Coordinator.Result", coordArgs, nil, nil)
+					return nil
+				}
+			}
+			increment(&guessPrefix)
+		}
+	}
+
+	//*secret = guess
+	//log.Println("Worker.Mine answer found")
+
+	//workerToCoord, err := rpc.DialHTTP("tcp", w.config.CoordAddr)
+	//if err != nil {
+	//	log.Fatal("Connection error: ", err)
+	//	return err
+	//}
+	//coordArgs := CoordinatorWorkerResult{args.Nonce, args.NumTrailingZeros, args.WorkerByte, guess}
+	//w.workerToCoord.Call("Coordinator.Result", coordArgs, nil)
+
+	//return nil
+}
+
+func (w *Worker) Cancel(args *WorkerCancelArgs, unused *uint) error {
+	//log.Printf("Worker.Cancel called: jobId is %d\n", args.JobId)
+	w.tracer.RecordAction(WorkerCancel{
+		args.Nonce,
+		args.NumTrailingZeros,
+		args.WorkerByte,
+	})
+	w.doneMap[args.JobId] <- true
+	//charleneIsTheSmartest := make(chan bool)
+	//w.doneMap.Store(args.jobId, charleneIsTheSmartest)
+	//charleneIsTheSmartest <- true
+	return nil
+}
 
 // helpers
 func increment(guess *[]uint8) {
@@ -141,21 +259,9 @@ func increment(guess *[]uint8) {
 	}
 }
 
-//func checkTrailingZeros(checksum [16]byte, cmpStr string) bool {
-//	str := hex.EncodeToString(checksum[:])
-//	str = str[len(str)-len(cmpStr):]
-//
-//	return str == cmpStr
-//}
+func checkTrailingZeros(checksum [16]byte, cmpStr string) bool {
+	str := hex.EncodeToString(checksum[:])
+	str = str[len(str)-len(cmpStr):]
 
-func hasNumZeroesSuffix(str []byte, numZeroes uint) bool {
-	var trailingZeroesFound uint
-	for i := len(str) - 1; i >= 0; i-- {
-		if str[i] == '0' {
-			trailingZeroesFound++
-		} else {
-			break
-		}
-	}
-	return trailingZeroesFound >= numZeroes
+	return str == cmpStr
 }
