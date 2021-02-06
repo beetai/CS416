@@ -138,6 +138,8 @@ func (c *Coordinator) Mine(args *CoordinatorMine, secret *[]uint8) error {
 		coordinatorToWorkers = append(coordinatorToWorkers, coordinatorToWorker)
 	}
 
+	finished := make(chan *rpc.Call, len(c.config.Workers)-1)
+
 	for i, coordinatorToWorker := range coordinatorToWorkers {
 		workerArgs := WorkerMineArgs{args.Nonce, args.NumTrailingZeros, uint8(i), c.threadBits}
 		c.tracer.RecordAction(CoordinatorWorkerMine{
@@ -145,7 +147,7 @@ func (c *Coordinator) Mine(args *CoordinatorMine, secret *[]uint8) error {
 			args.NumTrailingZeros,
 			uint8(i),
 		})
-		coordinatorToWorker.Go("Worker.Mine", workerArgs, nil, nil)
+		coordinatorToWorker.Go("Worker.Mine", workerArgs, nil, finished)
 	}
 
 	//log.Println("finish: ", workerReply)
@@ -153,6 +155,10 @@ func (c *Coordinator) Mine(args *CoordinatorMine, secret *[]uint8) error {
 	//log.Println(c.config)
 
 	//*secret = <-c.answer
+
+	for range coordinatorToWorkers {
+		<-finished
+	}
 
 	*secret = <-c.answerMap[jobHashStr]
 
@@ -182,12 +188,12 @@ func (c *Coordinator) Result(args *CoordinatorWorkerResult, unused *uint) error 
 	//coordinator.Go("Worker.Cancel", workerArgs, nil, nil)
 	//c.coordToWorker[0].Go("Worker.Cancel", workerArgs, nil, nil)'
 
-	stopped := make(chan *rpc.Call, len(c.config.Workers)-1)
+	//stopped := make(chan *rpc.Call, len(c.config.Workers)-1)
 
 	for i, port := range c.config.Workers {
 		coordinatorToWorker, err := rpc.DialHTTP("tcp", string(port))
 		if err != nil {
-			log.Fatal("Connection error: ", err)
+			log.Println("Connection error: ", err)
 			return err
 		}
 
@@ -199,14 +205,14 @@ func (c *Coordinator) Result(args *CoordinatorWorkerResult, unused *uint) error 
 			}
 			c.tracer.RecordAction(workerArgs)
 			//workerArgs := WorkerCancelArgs{args.Nonce, args.NumTrailingZeros, uint8(i), args.JobId}
-			coordinatorToWorker.Go("Worker.Cancel", workerArgs, nil, stopped)
+			coordinatorToWorker.Go("Worker.Cancel", workerArgs, nil, nil)
 		}
 		//coordinatorToWorker.Go("Worker.Cancel", workerArgs, nil, stopped)
 	}
 
-	for i := 0; i < len(c.config.Workers)-1; i++ {
-		<-stopped
-	}
+	//for i := 0; i < len(c.config.Workers)-1; i++ {
+	//	<-stopped
+	//}
 
 	jobHash := md5.Sum(append(args.Nonce, uint8(args.NumTrailingZeros)))
 	jobHashStr := hex.EncodeToString(jobHash[:])
