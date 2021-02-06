@@ -1,6 +1,8 @@
 package distpow
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"github.com/DistributedClocks/tracing"
 	"log"
 	"math"
@@ -67,8 +69,9 @@ type Coordinator struct {
 	//coordToWorker []*rpc.Client
 	config     CoordinatorConfig
 	threadBits uint
-	answer     chan []uint8
-	tracer     *tracing.Tracer
+	//answer     chan []uint8
+	answerMap map[string]chan []uint8
+	tracer    *tracing.Tracer
 }
 
 //type CoordinatorResultArgs struct {
@@ -93,7 +96,8 @@ func (c *Coordinator) Initialize(config CoordinatorConfig) error {
 	//}
 	//c.coordToWorker = append(c.coordToWorker, coordinatorToWorker)
 	c.tracer = tracing.NewTracer(tracerConfig)
-	c.answer = make(chan []uint8)
+	//c.answer = make(chan []uint8)
+	c.answerMap = make(map[string]chan []uint8)
 	c.threadBits = uint(math.Log2(float64(len(c.config.Workers))))
 	return nil
 	//return errors.New("not implemented")
@@ -116,6 +120,10 @@ func (c *Coordinator) Mine(args *CoordinatorMine, secret *[]uint8) error {
 	//log.Println("Coordinator.Mine start")
 
 	c.tracer.RecordAction(*args)
+
+	jobHash := md5.Sum(append(args.Nonce, uint8(args.NumTrailingZeros)))
+	jobHashStr := hex.EncodeToString(jobHash[:])
+	c.answerMap[jobHashStr] = make(chan []uint8)
 
 	//workerArgs := WorkerMine{args.Nonce, args.NumTrailingZeros, 0}
 	//c.coordToWorker[0].Go("Worker.Mine", workerArgs, nil, nil)
@@ -144,7 +152,9 @@ func (c *Coordinator) Mine(args *CoordinatorMine, secret *[]uint8) error {
 
 	//log.Println(c.config)
 
-	*secret = <-c.answer
+	//*secret = <-c.answer
+
+	*secret = <-c.answerMap[jobHashStr]
 
 	c.tracer.RecordAction(CoordinatorSuccess{
 		Nonce:            args.Nonce,
@@ -198,7 +208,10 @@ func (c *Coordinator) Result(args *CoordinatorWorkerResult, unused *uint) error 
 		<-stopped
 	}
 
-	c.answer <- args.Secret
+	jobHash := md5.Sum(append(args.Nonce, uint8(args.NumTrailingZeros)))
+	jobHashStr := hex.EncodeToString(jobHash[:])
+	c.answerMap[jobHashStr] <- args.Secret
+	//c.answer <- args.Secret
 
 	//log.Println("Coordinator.Result end")
 
