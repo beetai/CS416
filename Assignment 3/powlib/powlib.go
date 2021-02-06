@@ -3,7 +3,7 @@
 package powlib
 
 import (
-	"errors"
+	"net/rpc"
 
 	"github.com/DistributedClocks/tracing"
 )
@@ -43,11 +43,15 @@ type NotifyChannel chan MineResult
 // POW struct represents an instance of the powlib.
 type POW struct {
 	// TODO: fields go here
+	nc     NotifyChannel
+	client *rpc.Client
 }
 
 func NewPOW() *POW {
 	return &POW{
 		// TODO: initialize fields here
+		nc:     nil,
+		client: nil,
 	}
 }
 
@@ -57,7 +61,14 @@ func NewPOW() *POW {
 // notifications. If there is an issue with connecting, this should return
 // an appropriate err value, otherwise err should be set to nil.
 func (d *POW) Initialize(coordAddr string, chCapacity uint) (NotifyChannel, error) {
-	return nil, errors.New("not implemented")
+	client, err := rpc.DialHTTP("tcp", coordAddr)
+	if err != nil {
+		return nil, err
+	}
+	d.client = client
+	d.nc = make(NotifyChannel, chCapacity)
+	return d.nc, nil
+	//return nil, errors.New("not implemented")
 }
 
 // Mine is a non-blocking request from the client to the system solve a proof
@@ -68,7 +79,34 @@ func (d *POW) Initialize(coordAddr string, chCapacity uint) (NotifyChannel, erro
 // puzzle must be delivered asynchronously to the client via the notify-channel
 // channel returned in the Initialize call.
 func (d *POW) Mine(tracer *tracing.Tracer, nonce []uint8, numTrailingZeros uint) error {
-	return errors.New("not implemented")
+	tracer.RecordAction(PowlibMiningBegin{Nonce: nonce, NumTrailingZeros: numTrailingZeros})
+
+	go func(nonce []uint8, numTrailingZeros uint) {
+		//var secret MineResult
+		var secret []uint8
+		args := PowlibMine{Nonce: nonce, NumTrailingZeros: numTrailingZeros}
+		tracer.RecordAction(args)
+		d.client.Call("Coordinator.Mine", args, &secret)
+		//if err != nil {
+		//	return err
+		//}
+		tracer.RecordAction(PowlibSuccess{
+			Nonce:            nonce,
+			NumTrailingZeros: numTrailingZeros,
+			Secret:           secret,
+		})
+		tracer.RecordAction(PowlibMiningComplete{
+			Nonce:            nonce,
+			NumTrailingZeros: numTrailingZeros,
+			Secret:           secret,
+		})
+		d.nc <- MineResult{
+			Nonce:            nonce,
+			NumTrailingZeros: numTrailingZeros,
+			Secret:           secret,
+		}
+	}(nonce, numTrailingZeros)
+	return nil
 }
 
 // Close Stops the POW instance from communicating with the coordinator and
@@ -76,5 +114,9 @@ func (d *POW) Mine(tracer *tracing.Tracer, nonce []uint8, numTrailingZeros uint)
 // with stopping, this should return an appropriate err value, otherwise err
 // should be set to nil.
 func (d *POW) Close() error {
+	err := d.client.Close()
+	if err != nil {
+		return err
+	}
 	return nil
 }
