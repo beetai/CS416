@@ -231,13 +231,9 @@ func (w *Worker) Mine(args *WorkerMineArgs, unused *uint) error {
 	//return nil
 }
 
-func (w *Worker) Cancel(args *CoordinatorWorkerCancel, unused *uint) error {
+func (w *Worker) Cancel(args *WorkerCancel, unused *uint) error {
 	//log.Printf("Worker.Cancel called: jobId is %d\n", args.JobId)
-	w.tracer.RecordAction(WorkerCancel{
-		args.Nonce,
-		args.NumTrailingZeros,
-		args.WorkerByte,
-	})
+	w.tracer.RecordAction(*args)
 	jobHash := md5.Sum(append(args.Nonce, uint8(args.NumTrailingZeros)))
 	jobHashStr := hex.EncodeToString(jobHash[:])
 	w.doneMap[jobHashStr] <- true

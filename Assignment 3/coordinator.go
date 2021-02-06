@@ -157,15 +157,10 @@ func (c *Coordinator) Mine(args *CoordinatorMine, secret *[]uint8) error {
 	return nil
 }
 
-func (c *Coordinator) Result(args *WorkerResult, unused *uint) error {
+func (c *Coordinator) Result(args *CoordinatorWorkerResult, unused *uint) error {
 	//log.Println("Coordinator.Result called")
 	//log.Printf("jobId: %d\n", args.JobId)
-	c.tracer.RecordAction(CoordinatorWorkerResult{
-		args.Nonce,
-		args.NumTrailingZeros,
-		args.WorkerByte,
-		args.Secret,
-	})
+	c.tracer.RecordAction(*args)
 	//workerArgs := WorkerCancelArgs{args.Nonce, args.NumTrailingZeros, args.WorkerByte, args.JobId}
 
 	// for loop over all workers????
