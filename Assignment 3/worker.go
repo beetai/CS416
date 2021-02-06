@@ -120,8 +120,8 @@ type Worker struct {
 	//doneMap       map[int]chan bool
 	doneMap map[string]chan bool
 	//nextJobId     int
-	workerToCoord *rpc.Client
-	tracer        *tracing.Tracer
+	//workerToCoord *rpc.Client
+	tracer *tracing.Tracer
 }
 
 func (w *Worker) Initialize(config WorkerConfig) error {
@@ -131,13 +131,13 @@ func (w *Worker) Initialize(config WorkerConfig) error {
 		Secret:         config.TracerSecret,
 	}
 	w.config = config
-	workerToCoord, err := rpc.DialHTTP("tcp", w.config.CoordAddr)
-	if err != nil {
-		log.Fatal("Connection error: ", err)
-		return err
-	}
+	//workerToCoord, err := rpc.DialHTTP("tcp", w.config.CoordAddr)
+	//if err != nil {
+	//	log.Fatal("Connection error: ", err)
+	//	return err
+	//}
 	w.tracer = tracing.NewTracer(tracerConfig)
-	w.workerToCoord = workerToCoord
+	//w.workerToCoord = workerToCoord
 	//w.doneMap = make(map[int]chan bool)
 	w.doneMap = make(map[string]chan bool)
 	//w.nextJobId = 0
@@ -209,7 +209,12 @@ func (w *Worker) Mine(args *WorkerMineArgs, unused *uint) error {
 						guess,
 					}
 					w.tracer.RecordAction(coordArgs)
-					w.workerToCoord.Go("Coordinator.Result", coordArgs, nil, nil)
+					workerToCoord, err := rpc.DialHTTP("tcp", w.config.CoordAddr)
+					if err != nil {
+						log.Println("Connection error: ", err)
+						return err
+					}
+					workerToCoord.Go("Coordinator.Result", coordArgs, nil, nil)
 					return nil
 				}
 			}
