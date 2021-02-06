@@ -118,5 +118,6 @@ func (d *POW) Close() error {
 	if err != nil {
 		return err
 	}
+	close(d.nc)
 	return nil
 }
