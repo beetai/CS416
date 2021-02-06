@@ -108,17 +108,18 @@ type WorkerMineArgs struct {
 	ThreadBits       uint
 }
 
-type WorkerCancelArgs struct {
-	Nonce            []uint8
-	NumTrailingZeros uint
-	WorkerByte       uint8
-	JobId            int
-}
+//type WorkerCancelArgs struct {
+//	Nonce            []uint8
+//	NumTrailingZeros uint
+//	WorkerByte       uint8
+//	//JobId            int
+//}
 
 type Worker struct {
-	config        WorkerConfig
-	doneMap       map[int]chan bool
-	nextJobId     int
+	config WorkerConfig
+	//doneMap       map[int]chan bool
+	doneMap map[string]chan bool
+	//nextJobId     int
 	workerToCoord *rpc.Client
 	tracer        *tracing.Tracer
 }
@@ -137,8 +138,9 @@ func (w *Worker) Initialize(config WorkerConfig) error {
 	}
 	w.tracer = tracing.NewTracer(tracerConfig)
 	w.workerToCoord = workerToCoord
-	w.doneMap = make(map[int]chan bool)
-	w.nextJobId = 0
+	//w.doneMap = make(map[int]chan bool)
+	w.doneMap = make(map[string]chan bool)
+	//w.nextJobId = 0
 	return nil
 	//return errors.New("not implemented")
 }
@@ -150,10 +152,14 @@ func (w *Worker) Mine(args *WorkerMineArgs, unused *uint) error {
 		args.NumTrailingZeros,
 		args.WorkerByte,
 	})
+
 	//guess := []uint8{0}
-	jobId := w.nextJobId
-	w.doneMap[jobId] = make(chan bool)
-	w.nextJobId++
+	//jobId := w.nextJobId
+	// Create job hash
+	jobHash := md5.Sum(append(args.Nonce, uint8(args.NumTrailingZeros)))
+	jobHashStr := hex.EncodeToString(jobHash[:])
+	w.doneMap[jobHashStr] = make(chan bool)
+	//w.nextJobId++
 
 	var buffer bytes.Buffer
 	for i := 0; i < int(args.NumTrailingZeros); i++ {
@@ -177,7 +183,7 @@ func (w *Worker) Mine(args *WorkerMineArgs, unused *uint) error {
 	for {
 		select {
 		//case <-w.doneMap.Load(jobId):
-		case <-w.doneMap[jobId]:
+		case <-w.doneMap[jobHashStr]:
 			//tracer.RecordAction(WorkerCancelled{threadByte})
 			//answer <- []uint8{0}
 			//log.Println("Worker.Cancelled")
@@ -195,13 +201,14 @@ func (w *Worker) Mine(args *WorkerMineArgs, unused *uint) error {
 					//answer <- guess
 					//<- cancel
 					//log.Printf("Worker.Mine answer found: jobId is %d\n", jobId)
-					coordArgs := CoordinatorResultArgs{args.Nonce, args.NumTrailingZeros, args.WorkerByte, guess, jobId}
-					w.tracer.RecordAction(WorkerResult{
+					//coordArgs := CoordinatorResultArgs{args.Nonce, args.NumTrailingZeros, args.WorkerByte, guess, jobId}
+					coordArgs := WorkerResult{
 						args.Nonce,
 						args.NumTrailingZeros,
 						args.WorkerByte,
 						guess,
-					})
+					}
+					w.tracer.RecordAction(coordArgs)
 					w.workerToCoord.Go("Coordinator.Result", coordArgs, nil, nil)
 					return nil
 				}
@@ -224,14 +231,16 @@ func (w *Worker) Mine(args *WorkerMineArgs, unused *uint) error {
 	//return nil
 }
 
-func (w *Worker) Cancel(args *WorkerCancelArgs, unused *uint) error {
+func (w *Worker) Cancel(args *CoordinatorWorkerCancel, unused *uint) error {
 	//log.Printf("Worker.Cancel called: jobId is %d\n", args.JobId)
 	w.tracer.RecordAction(WorkerCancel{
 		args.Nonce,
 		args.NumTrailingZeros,
 		args.WorkerByte,
 	})
-	w.doneMap[args.JobId] <- true
+	jobHash := md5.Sum(append(args.Nonce, uint8(args.NumTrailingZeros)))
+	jobHashStr := hex.EncodeToString(jobHash[:])
+	w.doneMap[jobHashStr] <- true
 	//charleneIsTheSmartest := make(chan bool)
 	//w.doneMap.Store(args.jobId, charleneIsTheSmartest)
 	//charleneIsTheSmartest <- true

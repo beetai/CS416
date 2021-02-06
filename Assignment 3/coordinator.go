@@ -71,13 +71,13 @@ type Coordinator struct {
 	tracer     *tracing.Tracer
 }
 
-type CoordinatorResultArgs struct {
-	Nonce            []uint8
-	NumTrailingZeros uint
-	WorkerByte       uint8
-	Secret           []uint8
-	JobId            int
-}
+//type CoordinatorResultArgs struct {
+//	Nonce            []uint8
+//	NumTrailingZeros uint
+//	WorkerByte       uint8
+//	Secret           []uint8
+//	//JobId            int
+//}
 
 func (c *Coordinator) Initialize(config CoordinatorConfig) error {
 	tracerConfig := tracing.TracerConfig{
@@ -120,14 +120,17 @@ func (c *Coordinator) Mine(args *CoordinatorMine, secret *[]uint8) error {
 	//workerArgs := WorkerMine{args.Nonce, args.NumTrailingZeros, 0}
 	//c.coordToWorker[0].Go("Worker.Mine", workerArgs, nil, nil)
 	//coordinatorToWorker.Go("Worker.Mine", workerArgs, nil, nil)
-
-	for i, port := range c.config.Workers {
+	var coordinatorToWorkers []*rpc.Client
+	for _, port := range c.config.Workers {
 		coordinatorToWorker, err := rpc.DialHTTP("tcp", string(port))
-		if err != nil {
-			log.Fatal("Connection error: ", err)
-			return err
+		for err != nil {
+			//log.Fatal("Connection error: ", err)
+			coordinatorToWorker, err = rpc.DialHTTP("tcp", string(port))
 		}
+		coordinatorToWorkers = append(coordinatorToWorkers, coordinatorToWorker)
+	}
 
+	for i, coordinatorToWorker := range coordinatorToWorkers {
 		workerArgs := WorkerMineArgs{args.Nonce, args.NumTrailingZeros, uint8(i), c.threadBits}
 		c.tracer.RecordAction(CoordinatorWorkerMine{
 			args.Nonce,
@@ -154,7 +157,7 @@ func (c *Coordinator) Mine(args *CoordinatorMine, secret *[]uint8) error {
 	return nil
 }
 
-func (c *Coordinator) Result(args *CoordinatorResultArgs, unused *uint) error {
+func (c *Coordinator) Result(args *WorkerResult, unused *uint) error {
 	//log.Println("Coordinator.Result called")
 	//log.Printf("jobId: %d\n", args.JobId)
 	c.tracer.RecordAction(CoordinatorWorkerResult{
@@ -184,12 +187,13 @@ func (c *Coordinator) Result(args *CoordinatorResultArgs, unused *uint) error {
 		}
 
 		if uint8(i) != args.WorkerByte {
-			c.tracer.RecordAction(CoordinatorWorkerCancel{
+			workerArgs := CoordinatorWorkerCancel{
 				args.Nonce,
 				args.NumTrailingZeros,
 				uint8(i),
-			})
-			workerArgs := WorkerCancelArgs{args.Nonce, args.NumTrailingZeros, uint8(i), args.JobId}
+			}
+			c.tracer.RecordAction(workerArgs)
+			//workerArgs := WorkerCancelArgs{args.Nonce, args.NumTrailingZeros, uint8(i), args.JobId}
 			coordinatorToWorker.Go("Worker.Cancel", workerArgs, nil, stopped)
 		}
 		//coordinatorToWorker.Go("Worker.Cancel", workerArgs, nil, stopped)
