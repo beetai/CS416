@@ -68,7 +68,6 @@ func (d *POW) Initialize(coordAddr string, chCapacity uint) (NotifyChannel, erro
 	d.client = client
 	d.nc = make(NotifyChannel, chCapacity)
 	return d.nc, nil
-	//return nil, errors.New("not implemented")
 }
 
 // Mine is a non-blocking request from the client to the system solve a proof
@@ -82,7 +81,6 @@ func (d *POW) Mine(tracer *tracing.Tracer, nonce []uint8, numTrailingZeros uint)
 	tracer.RecordAction(PowlibMiningBegin{Nonce: nonce, NumTrailingZeros: numTrailingZeros})
 
 	go func(nonce []uint8, numTrailingZeros uint) {
-		//var secret MineResult
 		var secret []uint8
 		args := PowlibMine{Nonce: nonce, NumTrailingZeros: numTrailingZeros}
 		tracer.RecordAction(args)

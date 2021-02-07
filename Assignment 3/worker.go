@@ -7,7 +7,6 @@ import (
 	"github.com/DistributedClocks/tracing"
 	"log"
 	"net/rpc"
-	"sync"
 )
 
 type WorkerConfig struct {
@@ -37,64 +36,32 @@ type WorkerCancel struct {
 	WorkerByte       uint8
 }
 
-//type Args struct {
-//	A, B int
-//}
-//
-//type Quotient struct {
-//	Quo, Rem int
-//}
-//
-//type Arith int
-//
-//func (t *Arith) Multiply(args *Args, reply *int) error {
-//	*reply = args.A * args.B
-//	return nil
-//}
-//
-//func (t *Arith) Divide(args *Args, quo *Quotient) error {
-//	if args.B == 0 {
-//		return errors.New("divide by zero")
-//	}
-//	quo.Quo = args.A / args.B
-//	quo.Rem = args.A % args.B
-//	return nil
-//}
-
-// Worker code
-//type WorkerMineArgs struct {
-//	//tracer *tracing.Tracer
-//	Nonce                         []uint8
-//	numTrailingZeroes, workerByte uint8
-//	//CmpStr                        string
-//}
-
 // https://www.reddit.com/r/golang/comments/a2b4iu/how_to_storeretrieve_channels_in_sync_map/
-type Map struct {
-	syncMap sync.Map
-}
-
-func (m *Map) Load(key int) chan bool {
-	val, ok := m.syncMap.Load(key)
-	if ok {
-		return val.(chan bool)
-	} else {
-		return nil
-	}
-}
-
-func (m *Map) Exists(key int) bool {
-	_, ok := m.syncMap.Load(key)
-	return ok
-}
-
-func (m *Map) Store(key int, value chan bool) {
-	m.syncMap.Store(key, value)
-}
-
-func (m *Map) Delete(key int) {
-	m.syncMap.Delete(key)
-}
+//type Map struct {
+//	syncMap sync.Map
+//}
+//
+//func (m *Map) Load(key int) chan bool {
+//	val, ok := m.syncMap.Load(key)
+//	if ok {
+//		return val.(chan bool)
+//	} else {
+//		return nil
+//	}
+//}
+//
+//func (m *Map) Exists(key int) bool {
+//	_, ok := m.syncMap.Load(key)
+//	return ok
+//}
+//
+//func (m *Map) Store(key int, value chan bool) {
+//	m.syncMap.Store(key, value)
+//}
+//
+//func (m *Map) Delete(key int) {
+//	m.syncMap.Delete(key)
+//}
 
 //var KillMap Map
 //
@@ -108,20 +75,10 @@ type WorkerMineArgs struct {
 	ThreadBits       uint
 }
 
-//type WorkerCancelArgs struct {
-//	Nonce            []uint8
-//	NumTrailingZeros uint
-//	WorkerByte       uint8
-//	//JobId            int
-//}
-
 type Worker struct {
-	config WorkerConfig
-	//doneMap       map[int]chan bool
+	config  WorkerConfig
 	doneMap map[string]chan bool
-	//nextJobId     int
-	//workerToCoord *rpc.Client
-	tracer *tracing.Tracer
+	tracer  *tracing.Tracer
 }
 
 func (w *Worker) Initialize(config WorkerConfig) error {
@@ -131,35 +88,22 @@ func (w *Worker) Initialize(config WorkerConfig) error {
 		Secret:         config.TracerSecret,
 	}
 	w.config = config
-	//workerToCoord, err := rpc.DialHTTP("tcp", w.config.CoordAddr)
-	//if err != nil {
-	//	log.Fatal("Connection error: ", err)
-	//	return err
-	//}
 	w.tracer = tracing.NewTracer(tracerConfig)
-	//w.workerToCoord = workerToCoord
-	//w.doneMap = make(map[int]chan bool)
 	w.doneMap = make(map[string]chan bool)
-	//w.nextJobId = 0
 	return nil
-	//return errors.New("not implemented")
 }
 
 func (w *Worker) Mine(args *WorkerMineArgs, unused *uint) error {
-	//log.Println("Worker.Mine start")
 	w.tracer.RecordAction(WorkerMine{
 		args.Nonce,
 		args.NumTrailingZeros,
 		args.WorkerByte,
 	})
 
-	//guess := []uint8{0}
-	//jobId := w.nextJobId
 	// Create job hash
 	jobHash := md5.Sum(append(args.Nonce, uint8(args.NumTrailingZeros)))
 	jobHashStr := hex.EncodeToString(jobHash[:])
 	w.doneMap[jobHashStr] = make(chan bool, 10)
-	//w.nextJobId++
 
 	var buffer bytes.Buffer
 	for i := 0; i < int(args.NumTrailingZeros); i++ {
@@ -167,32 +111,16 @@ func (w *Worker) Mine(args *WorkerMineArgs, unused *uint) error {
 	}
 	cmpStr := buffer.String()
 
-	//for {
-	//	appendedGuess := append(args.Nonce, guess...)
-	//	checksum := md5.Sum(appendedGuess)
-	//	hashStrBuf.Reset()
-	//	fmt.Fprintf(hashStrBuf, "%x", checksum)
-	//	if hasNumZeroesSuffix(hashStrBuf.Bytes(), args.NumTrailingZeros) {
-	//		break
-	//	}
-	//	increment(&guess)
-	//}
-
 	guessPrefix := []uint8{0}
 
 	for {
 		select {
-		//case <-w.doneMap.Load(jobId):
 		case <-w.doneMap[jobHashStr]:
-			//tracer.RecordAction(WorkerCancelled{threadByte})
-			//answer <- []uint8{0}
-			//log.Println("Worker.Cancelled")
-
-			w.tracer.RecordAction(WorkerCancel{
-				args.Nonce,
-				args.NumTrailingZeros,
-				args.WorkerByte,
-			})
+			//w.tracer.RecordAction(WorkerCancel{
+			//	args.Nonce,
+			//	args.NumTrailingZeros,
+			//	args.WorkerByte,
+			//})
 			return nil
 		default:
 			start := int(args.WorkerByte) << (8 - args.ThreadBits)
@@ -203,11 +131,6 @@ func (w *Worker) Mine(args *WorkerMineArgs, unused *uint) error {
 				appendedGuess := append(args.Nonce, guess...)
 				checksum := md5.Sum(appendedGuess)
 				if checkTrailingZeros(checksum, cmpStr) {
-					//tracer.RecordAction(WorkerSuccess{threadByte, guess})
-					//answer <- guess
-					//<- cancel
-					//log.Printf("Worker.Mine answer found: jobId is %d\n", jobId)
-					//coordArgs := CoordinatorResultArgs{args.Nonce, args.NumTrailingZeros, args.WorkerByte, guess, jobId}
 					coordArgs := WorkerResult{
 						args.Nonce,
 						args.NumTrailingZeros,
@@ -227,30 +150,13 @@ func (w *Worker) Mine(args *WorkerMineArgs, unused *uint) error {
 			increment(&guessPrefix)
 		}
 	}
-
-	//*secret = guess
-	//log.Println("Worker.Mine answer found")
-
-	//workerToCoord, err := rpc.DialHTTP("tcp", w.config.CoordAddr)
-	//if err != nil {
-	//	log.Fatal("Connection error: ", err)
-	//	return err
-	//}
-	//coordArgs := CoordinatorWorkerResult{args.Nonce, args.NumTrailingZeros, args.WorkerByte, guess}
-	//w.workerToCoord.Call("Coordinator.Result", coordArgs, nil)
-
-	//return nil
 }
 
 func (w *Worker) Cancel(args *WorkerCancel, unused *uint) error {
-	//log.Printf("Worker.Cancel called: jobId is %d\n", args.JobId)
-	//w.tracer.RecordAction(*args)
+	w.tracer.RecordAction(*args)
 	jobHash := md5.Sum(append(args.Nonce, uint8(args.NumTrailingZeros)))
 	jobHashStr := hex.EncodeToString(jobHash[:])
 	w.doneMap[jobHashStr] <- true
-	//charleneIsTheSmartest := make(chan bool)
-	//w.doneMap.Store(args.jobId, charleneIsTheSmartest)
-	//charleneIsTheSmartest <- true
 	return nil
 }
 
