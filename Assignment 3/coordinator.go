@@ -99,7 +99,7 @@ func (c *Coordinator) Mine(args *CoordinatorMine, secret *[]uint8) error {
 	// CoordinatorWorkerResult
 	cwr := <-c.answerMap[jobHashStr]
 
-	c.tracer.RecordAction(cwr)
+	//c.tracer.RecordAction(cwr)
 
 	stopped := make(chan *rpc.Call, len(c.config.Workers)-1)
 
@@ -137,7 +137,7 @@ func (c *Coordinator) Mine(args *CoordinatorMine, secret *[]uint8) error {
 }
 
 func (c *Coordinator) Result(args *CoordinatorWorkerResult, unused *uint) error {
-	//c.tracer.RecordAction(*args)
+	c.tracer.RecordAction(*args)
 	jobHash := md5.Sum(append(args.Nonce, uint8(args.NumTrailingZeros)))
 	jobHashStr := hex.EncodeToString(jobHash[:])
 	c.answerMap[jobHashStr] <- *args
