@@ -70,8 +70,10 @@ type Coordinator struct {
 	config     CoordinatorConfig
 	threadBits uint
 	//answer     chan []uint8
-	answerMap map[string]chan []uint8
-	tracer    *tracing.Tracer
+	//answerMap map[string]chan []uint8
+	answerMap map[string]chan CoordinatorWorkerResult
+	//stoppedMap map[string]chan *rpc.Call
+	tracer *tracing.Tracer
 }
 
 //type CoordinatorResultArgs struct {
@@ -97,7 +99,9 @@ func (c *Coordinator) Initialize(config CoordinatorConfig) error {
 	//c.coordToWorker = append(c.coordToWorker, coordinatorToWorker)
 	c.tracer = tracing.NewTracer(tracerConfig)
 	//c.answer = make(chan []uint8)
-	c.answerMap = make(map[string]chan []uint8)
+	//c.answerMap = make(map[string]chan []uint8)
+	c.answerMap = make(map[string]chan CoordinatorWorkerResult)
+	//c.stoppedMap = make(map[string]chan *rpc.Call)
 	c.threadBits = uint(math.Log2(float64(len(c.config.Workers))))
 	return nil
 	//return errors.New("not implemented")
@@ -123,7 +127,8 @@ func (c *Coordinator) Mine(args *CoordinatorMine, secret *[]uint8) error {
 
 	jobHash := md5.Sum(append(args.Nonce, uint8(args.NumTrailingZeros)))
 	jobHashStr := hex.EncodeToString(jobHash[:])
-	c.answerMap[jobHashStr] = make(chan []uint8)
+	//c.answerMap[jobHashStr] = make(chan []uint8)
+	c.answerMap[jobHashStr] = make(chan CoordinatorWorkerResult)
 
 	//workerArgs := WorkerMine{args.Nonce, args.NumTrailingZeros, 0}
 	//c.coordToWorker[0].Go("Worker.Mine", workerArgs, nil, nil)
@@ -138,7 +143,7 @@ func (c *Coordinator) Mine(args *CoordinatorMine, secret *[]uint8) error {
 		coordinatorToWorkers = append(coordinatorToWorkers, coordinatorToWorker)
 	}
 
-	finished := make(chan *rpc.Call, len(c.config.Workers)-1)
+	//finished := make(chan *rpc.Call, len(c.config.Workers)-1)
 
 	for i, coordinatorToWorker := range coordinatorToWorkers {
 		workerArgs := WorkerMineArgs{args.Nonce, args.NumTrailingZeros, uint8(i), c.threadBits}
@@ -147,7 +152,7 @@ func (c *Coordinator) Mine(args *CoordinatorMine, secret *[]uint8) error {
 			args.NumTrailingZeros,
 			uint8(i),
 		})
-		coordinatorToWorker.Go("Worker.Mine", workerArgs, nil, finished)
+		coordinatorToWorker.Go("Worker.Mine", workerArgs, nil, nil)
 	}
 
 	//log.Println("finish: ", workerReply)
@@ -156,11 +161,49 @@ func (c *Coordinator) Mine(args *CoordinatorMine, secret *[]uint8) error {
 
 	//*secret = <-c.answer
 
-	for range coordinatorToWorkers {
-		<-finished
+	//for range coordinatorToWorkers {
+	//	<-finished
+	//}
+
+	// CoordinatorWorkerResult
+	cwr := <-c.answerMap[jobHashStr]
+
+	//*secret = <-c.answerMap[jobHashStr]
+
+	c.tracer.RecordAction(cwr)
+
+	stopped := make(chan *rpc.Call, len(c.config.Workers)-1)
+	//c.stoppedMap[jobHashStr] = make(chan *rpc.Call, len(c.config.Workers)-1)
+
+	for i, port := range c.config.Workers {
+		coordinatorToWorker, err := rpc.DialHTTP("tcp", string(port))
+		if err != nil {
+			log.Println("Connection error: ", err)
+			return err
+		}
+
+		if uint8(i) != cwr.WorkerByte {
+			workerArgs := CoordinatorWorkerCancel{
+				args.Nonce,
+				args.NumTrailingZeros,
+				uint8(i),
+			}
+			c.tracer.RecordAction(workerArgs)
+			//workerArgs := WorkerCancelArgs{args.Nonce, args.NumTrailingZeros, uint8(i), args.JobId}
+			coordinatorToWorker.Go("Worker.Cancel", workerArgs, nil, stopped)
+			//coordinatorToWorker.Go("Worker.Cancel", workerArgs, nil, c.stoppedMap[jobHashStr])
+		}
+		//coordinatorToWorker.Go("Worker.Cancel", workerArgs, nil, stopped)
 	}
 
-	*secret = <-c.answerMap[jobHashStr]
+	for i := 0; i < len(c.config.Workers)-1; i++ {
+		log.Println("reading stopped channel", cwr)
+		<-stopped
+		//<-c.stoppedMap[jobHashStr]
+		log.Println("read stopped channel", cwr)
+	}
+
+	*secret = cwr.Secret
 
 	c.tracer.RecordAction(CoordinatorSuccess{
 		Nonce:            args.Nonce,
@@ -176,7 +219,7 @@ func (c *Coordinator) Mine(args *CoordinatorMine, secret *[]uint8) error {
 func (c *Coordinator) Result(args *CoordinatorWorkerResult, unused *uint) error {
 	//log.Println("Coordinator.Result called")
 	//log.Printf("jobId: %d\n", args.JobId)
-	c.tracer.RecordAction(*args)
+	//c.tracer.RecordAction(*args)
 	//workerArgs := WorkerCancelArgs{args.Nonce, args.NumTrailingZeros, args.WorkerByte, args.JobId}
 
 	// for loop over all workers????
@@ -190,25 +233,25 @@ func (c *Coordinator) Result(args *CoordinatorWorkerResult, unused *uint) error 
 
 	//stopped := make(chan *rpc.Call, len(c.config.Workers)-1)
 
-	for i, port := range c.config.Workers {
-		coordinatorToWorker, err := rpc.DialHTTP("tcp", string(port))
-		if err != nil {
-			log.Println("Connection error: ", err)
-			return err
-		}
-
-		if uint8(i) != args.WorkerByte {
-			workerArgs := CoordinatorWorkerCancel{
-				args.Nonce,
-				args.NumTrailingZeros,
-				uint8(i),
-			}
-			c.tracer.RecordAction(workerArgs)
-			//workerArgs := WorkerCancelArgs{args.Nonce, args.NumTrailingZeros, uint8(i), args.JobId}
-			coordinatorToWorker.Go("Worker.Cancel", workerArgs, nil, nil)
-		}
-		//coordinatorToWorker.Go("Worker.Cancel", workerArgs, nil, stopped)
-	}
+	//for i, port := range c.config.Workers {
+	//	coordinatorToWorker, err := rpc.DialHTTP("tcp", string(port))
+	//	if err != nil {
+	//		log.Println("Connection error: ", err)
+	//		return err
+	//	}
+	//
+	//	if uint8(i) != args.WorkerByte {
+	//		workerArgs := CoordinatorWorkerCancel{
+	//			args.Nonce,
+	//			args.NumTrailingZeros,
+	//			uint8(i),
+	//		}
+	//		c.tracer.RecordAction(workerArgs)
+	//		//workerArgs := WorkerCancelArgs{args.Nonce, args.NumTrailingZeros, uint8(i), args.JobId}
+	//		coordinatorToWorker.Go("Worker.Cancel", workerArgs, nil, nil)
+	//	}
+	//	//coordinatorToWorker.Go("Worker.Cancel", workerArgs, nil, stopped)
+	//}
 
 	//for i := 0; i < len(c.config.Workers)-1; i++ {
 	//	<-stopped
@@ -216,8 +259,9 @@ func (c *Coordinator) Result(args *CoordinatorWorkerResult, unused *uint) error 
 
 	jobHash := md5.Sum(append(args.Nonce, uint8(args.NumTrailingZeros)))
 	jobHashStr := hex.EncodeToString(jobHash[:])
-	c.answerMap[jobHashStr] <- args.Secret
+	//c.answerMap[jobHashStr] <- args.Secret
 	//c.answer <- args.Secret
+	c.answerMap[jobHashStr] <- *args
 
 	//log.Println("Coordinator.Result end")
 

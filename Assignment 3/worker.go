@@ -158,7 +158,7 @@ func (w *Worker) Mine(args *WorkerMineArgs, unused *uint) error {
 	// Create job hash
 	jobHash := md5.Sum(append(args.Nonce, uint8(args.NumTrailingZeros)))
 	jobHashStr := hex.EncodeToString(jobHash[:])
-	w.doneMap[jobHashStr] = make(chan bool)
+	w.doneMap[jobHashStr] = make(chan bool, 10)
 	//w.nextJobId++
 
 	var buffer bytes.Buffer
@@ -187,6 +187,12 @@ func (w *Worker) Mine(args *WorkerMineArgs, unused *uint) error {
 			//tracer.RecordAction(WorkerCancelled{threadByte})
 			//answer <- []uint8{0}
 			//log.Println("Worker.Cancelled")
+
+			w.tracer.RecordAction(WorkerCancel{
+				args.Nonce,
+				args.NumTrailingZeros,
+				args.WorkerByte,
+			})
 			return nil
 		default:
 			start := int(args.WorkerByte) << (8 - args.ThreadBits)
@@ -238,7 +244,7 @@ func (w *Worker) Mine(args *WorkerMineArgs, unused *uint) error {
 
 func (w *Worker) Cancel(args *WorkerCancel, unused *uint) error {
 	//log.Printf("Worker.Cancel called: jobId is %d\n", args.JobId)
-	w.tracer.RecordAction(*args)
+	//w.tracer.RecordAction(*args)
 	jobHash := md5.Sum(append(args.Nonce, uint8(args.NumTrailingZeros)))
 	jobHashStr := hex.EncodeToString(jobHash[:])
 	w.doneMap[jobHashStr] <- true
