@@ -8,14 +8,6 @@ import (
 	"net/rpc"
 )
 
-//type Args struct {
-//	A, B int
-//}
-//
-//type Quotient struct {
-//	Quo, Rem int
-//}
-
 func main() {
 	var config distpow.CoordinatorConfig
 	err := distpow.ReadJSONConfig("config/coordinator_config.json", &config)
@@ -28,26 +20,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	//coordinator, err := rpc.DialHTTP("tcp", "localhost"+config.WorkerAPIListenAddr)
-	//if err != nil {
-	//	log.Fatal("Connection error: ", err)
-	//}
-
-	//args := distpow.WorkerMine{[]uint8{1, 2, 3, 4}, 7, 0}
-
-	//var multReply int
-	//var divReply distpow.Quotient
-	//var workerReply []uint8
-	//coordinator.Call("Arith.Multiply", args, &multReply)
-	//coordinator.Call("Arith.Divide", args, &divReply)
-	//log.Println("start")
-	//coordinator.Call("Worker.Mine", args, &workerReply)
-
-	//log.Println(multReply)
-	//log.Println(divReply)
-	//log.Println("finish: ", workerReply)
-
-	//var worker = new(distpow.Worker)
 	err = rpc.Register(coordinator)
 	if err != nil {
 		log.Fatal("error registering API: ", err)

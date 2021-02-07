@@ -25,8 +25,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	//var arith = new(distpow.Arith)
-	//var worker = new(distpow.Worker)
 	err = rpc.Register(worker)
 	if err != nil {
 		log.Fatal("error registering API: ", err)
@@ -34,13 +32,11 @@ func main() {
 
 	rpc.HandleHTTP()
 
-	//listener, err := net.Listen("tcp", config.CoordAddr)
 	listener, err := net.Listen("tcp", config.ListenAddr)
 	if err != nil {
 		log.Fatal("Listener error: ", err)
 	}
 
-	//log.Printf("serving rpc on port %s", config.CoordAddr)
 	log.Printf("serving rpc on port %s", config.ListenAddr)
 
 	err = http.Serve(listener, nil)
