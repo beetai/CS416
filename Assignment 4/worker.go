@@ -47,12 +47,14 @@ type WorkerMineArgs struct {
 	NumTrailingZeros uint
 	WorkerByte       uint8
 	WorkerBits       uint
+	Token            tracing.TracingToken
 }
 
 type WorkerCancelArgs struct {
 	Nonce            []uint8
 	NumTrailingZeros uint
 	WorkerByte       uint8
+	Token            tracing.TracingToken
 }
 
 type CancelChan chan struct{}
@@ -133,7 +135,8 @@ func (w *WorkerRPCHandler) Mine(args WorkerMineArgs, reply *struct{}) error {
 	cancelCh := make(chan struct{}, 1)
 	w.mineTasks.set(args.Nonce, args.NumTrailingZeros, args.WorkerByte, cancelCh)
 
-	w.tracer.RecordAction(WorkerMine{
+	trace := w.tracer.ReceiveToken(args.Token)
+	trace.RecordAction(WorkerMine{
 		Nonce:            args.Nonce,
 		NumTrailingZeros: args.NumTrailingZeros,
 		WorkerByte:       args.WorkerByte,
@@ -198,11 +201,13 @@ func miner(w *WorkerRPCHandler, args WorkerMineArgs, killChan <-chan struct{}) {
 		threadBytes[i] = uint8((int(args.WorkerByte) << remainderBits) | i)
 	}
 
+	trace := w.tracer.ReceiveToken(args.Token)
+
 	for {
 		for _, threadByte := range threadBytes {
 			select {
 			case <-killChan:
-				w.tracer.RecordAction(WorkerCancel{
+				trace.RecordAction(WorkerCancel{
 					Nonce:            args.Nonce,
 					NumTrailingZeros: args.NumTrailingZeros,
 					WorkerByte:       args.WorkerByte,
@@ -234,7 +239,7 @@ func miner(w *WorkerRPCHandler, args WorkerMineArgs, killChan <-chan struct{}) {
 					WorkerByte:       args.WorkerByte,
 					Secret:           wholeBuffer.Bytes()[wholeBufferTrunc:],
 				}
-				w.tracer.RecordAction(result)
+				trace.RecordAction(result)
 				w.resultChan <- result
 
 				// now, wait for the worker the receive a cancellation,
@@ -251,7 +256,7 @@ func miner(w *WorkerRPCHandler, args WorkerMineArgs, killChan <-chan struct{}) {
 					Secret:           nil,
 				}
 				// and log it, which satisfies the (optional) stricter interpretation of WorkerCancel
-				w.tracer.RecordAction(WorkerCancel{
+				trace.RecordAction(WorkerCancel{
 					Nonce:            args.Nonce,
 					NumTrailingZeros: args.NumTrailingZeros,
 					WorkerByte:       args.WorkerByte,
