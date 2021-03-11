@@ -30,7 +30,12 @@ func main() {
 			NumTrailingZeros: res.NumTrailingZeros,
 			WorkerByte:       res.WorkerByte,
 			Secret:           res.Secret,
+			Token:            res.Token,
 		}
-		worker.Coordinator.Go("CoordRPCHandler.Result", result, &struct{}{}, nil)
+		//worker.Coordinator.Go("CoordRPCHandler.Result", result, &struct{}{}, nil)
+
+		reply := distpow.CoordResultResponse{}
+		worker.Coordinator.Go("CoordRPCHandler.Result", result, &reply, nil)
+		worker.Tracer.ReceiveToken(reply.ReturnToken) // TODO: are we supposed to make Result call blocking?
 	}
 }

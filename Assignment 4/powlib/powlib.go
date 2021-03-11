@@ -18,6 +18,10 @@ type PowlibMiningBegin struct {
 type PowlibMine struct {
 	Nonce            []uint8
 	NumTrailingZeros uint
+}
+type PowlibMineArgs struct {
+	Nonce            []uint8
+	NumTrailingZeros uint
 	Token            tracing.TracingToken
 }
 
@@ -38,6 +42,7 @@ type MineResult struct {
 	Nonce            []uint8
 	NumTrailingZeros uint
 	Secret           []uint8
+	ReturnToken      tracing.TracingToken
 }
 
 // NotifyChannel is used for notifying the client about a mining result.
@@ -100,7 +105,7 @@ func (d *POW) Mine(tracer *tracing.Tracer, nonce []uint8, numTrailingZeros uint)
 		NumTrailingZeros: numTrailingZeros,
 	})
 	d.closeWg.Add(1)
-	go d.callMine(trace, nonce, numTrailingZeros)
+	go d.callMine(tracer, nonce, numTrailingZeros, trace)
 	return nil
 }
 
@@ -126,18 +131,22 @@ func (d *POW) Close() error {
 	return nil
 }
 
-func (d *POW) callMine(trace *tracing.Trace, nonce []uint8, numTrailingZeros uint) {
+func (d *POW) callMine(tracer *tracing.Tracer, nonce []uint8, numTrailingZeros uint, trace *tracing.Trace) {
 	defer func() {
 		log.Printf("callMine done")
 		d.closeWg.Done()
 	}()
 
-	args := PowlibMine{
+	args := PowlibMineArgs{
 		Nonce:            nonce,
 		NumTrailingZeros: numTrailingZeros,
 		Token:            trace.GenerateToken(),
 	}
-	trace.RecordAction(args)
+
+	trace.RecordAction(PowlibMine{
+		Nonce:            args.Nonce,
+		NumTrailingZeros: args.NumTrailingZeros,
+	})
 
 	result := MineResult{}
 	call := d.coordinator.Go("CoordRPCHandler.Mine", args, &result, nil)
@@ -147,6 +156,7 @@ func (d *POW) callMine(trace *tracing.Trace, nonce []uint8, numTrailingZeros uin
 			if call.Error != nil {
 				log.Fatal(call.Error)
 			} else {
+				tracer.ReceiveToken(result.ReturnToken)
 				trace.RecordAction(PowlibSuccess{
 					Nonce:            result.Nonce,
 					NumTrailingZeros: result.NumTrailingZeros,
