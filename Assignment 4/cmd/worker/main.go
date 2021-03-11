@@ -35,7 +35,7 @@ func main() {
 		//worker.Coordinator.Go("CoordRPCHandler.Result", result, &struct{}{}, nil)
 
 		reply := distpow.CoordResultResponse{}
-		worker.Coordinator.Go("CoordRPCHandler.Result", result, &reply, nil)
-		worker.Tracer.ReceiveToken(reply.ReturnToken) // TODO: are we supposed to make Result call blocking?
+		worker.Coordinator.Call("CoordRPCHandler.Result", result, &reply)
+		worker.Tracer.ReceiveToken(reply.ReturnToken)
 	}
 }
