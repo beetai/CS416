@@ -62,6 +62,7 @@ type Coordinator struct {
 	config  CoordinatorConfig
 	tracer  *tracing.Tracer
 	workers []*WorkerClient
+	cache   Cache
 }
 
 /****** RPC structs ******/
@@ -97,6 +98,7 @@ type CoordRPCHandler struct {
 	workers    []*WorkerClient
 	workerBits uint
 	mineTasks  CoordinatorMineTasks
+	cache      Cache
 }
 
 type CoordinatorMineTasks struct {
@@ -120,10 +122,13 @@ func NewCoordinator(config CoordinatorConfig) *Coordinator {
 		}
 	}
 
+	cache := NewCache()
+
 	return &Coordinator{
 		config:  config,
 		tracer:  tracer,
 		workers: workerClients,
+		cache:   cache,
 	}
 }
 
@@ -134,6 +139,20 @@ func (c *CoordRPCHandler) Mine(args CoordMineArgs, reply *CoordMineResponse) err
 		NumTrailingZeros: args.NumTrailingZeros,
 		Nonce:            args.Nonce,
 	})
+
+	if c.cache.Exists(trace, args.Nonce, args.NumTrailingZeros) {
+		reply.NumTrailingZeros = args.NumTrailingZeros
+		reply.Nonce = args.Nonce
+		reply.Secret = c.cache.Load(args.Nonce)
+		reply.ReturnToken = trace.GenerateToken()
+
+		trace.RecordAction(CoordinatorSuccess{
+			Nonce:            reply.Nonce,
+			NumTrailingZeros: reply.NumTrailingZeros,
+			Secret:           reply.Secret,
+		})
+		return nil
+	}
 
 	// initialize and connect to workers (if not already connected)
 	for err := initializeWorkers(c.workers); err != nil; {
@@ -176,6 +195,9 @@ func (c *CoordRPCHandler) Mine(args CoordMineArgs, reply *CoordMineResponse) err
 		log.Fatalf("First worker result appears to be cancellation ACK, from workerByte = %d", result.WorkerByte)
 	}
 
+	// option 1
+	//c.cache.Store(args.Nonce, args.NumTrailingZeros, result.Secret)
+
 	// after receiving one result, cancel all workers unconditionally.
 	// the cancellation takes place of an ACK for any workers sending results.
 	for _, w := range c.workers {
@@ -210,6 +232,8 @@ func (c *CoordRPCHandler) Mine(args CoordMineArgs, reply *CoordMineResponse) err
 			log.Printf("Counting toward acks: %v", ack)
 			workerAcksReceived += 1
 		} else {
+			// option 1
+			//c.cache.Store(args.Nonce, args.NumTrailingZeros, result.Secret)
 			log.Printf("Dropping extra result: %v", ack)
 		}
 	}
@@ -235,6 +259,8 @@ func (c *CoordRPCHandler) Mine(args CoordMineArgs, reply *CoordMineResponse) err
 func (c *CoordRPCHandler) Result(args CoordResultArgs, reply *CoordResultResponse) error {
 	trace := c.tracer.ReceiveToken(args.Token)
 	if args.Secret != nil {
+		// option 2
+		c.cache.Store(trace, args.Nonce, args.NumTrailingZeros, args.Secret)
 		trace.RecordAction(CoordinatorWorkerResult{
 			Nonce:            args.Nonce,
 			NumTrailingZeros: args.NumTrailingZeros,
@@ -257,6 +283,7 @@ func (c *Coordinator) InitializeRPCs() error {
 		mineTasks: CoordinatorMineTasks{
 			tasks: make(map[string]ResultChan),
 		},
+		cache: c.cache,
 	}
 	server := rpc.NewServer()
 	err := server.Register(handler) // publish Coordinator<->worker procs
