@@ -170,6 +170,51 @@ func (w *WorkerRPCHandler) Mine(args WorkerMineArgs, reply *WorkerMineResponse) 
 		NumTrailingZeros: args.NumTrailingZeros,
 		WorkerByte:       args.WorkerByte,
 	})
+
+	// cache check
+	if w.cache.Exists(trace, args.Nonce, args.NumTrailingZeros) {
+		// TODO: WHAT TO DO IF CACHE HIT OCCURS HERE?
+		//secret := w.cache.Load(args.Nonce)
+		//trace.RecordAction(WorkerResult{
+		//	Nonce:            args.Nonce,
+		//	NumTrailingZeros: args.NumTrailingZeros,
+		//	WorkerByte:       args.WorkerByte,
+		//	Secret:           secret,
+		//})
+		//result := WorkerResultToken{
+		//	Nonce:            args.Nonce,
+		//	NumTrailingZeros: args.NumTrailingZeros,
+		//	WorkerByte:       args.WorkerByte,
+		//	Secret:           secret,
+		//	Token:            trace.GenerateToken(),
+		//}
+		//
+		//w.resultChan <- result
+		//
+		//// now, wait for the worker the receive a cancellation,
+		//// which the coordinator should always send no matter what.
+		//// note: this position takes care of interleavings where cancellation comes after we check killChan but
+		////       before we log the result we found, forcing WorkerCancel to be the last action logged, even in that case.
+		//<-cancelCh
+		//
+		//// and log it, which satisfies the (optional) stricter interpretation of WorkerCancel
+		////trace.RecordAction(WorkerCancel{
+		////	Nonce:            args.Nonce,
+		////	NumTrailingZeros: args.NumTrailingZeros,
+		////	WorkerByte:       args.WorkerByte,
+		////})
+		//
+		//// ACK the cancellation; the coordinator will be waiting for this.
+		//w.resultChan <- WorkerResultToken{
+		//	Nonce:            args.Nonce,
+		//	NumTrailingZeros: args.NumTrailingZeros,
+		//	WorkerByte:       args.WorkerByte,
+		//	Secret:           nil,
+		//	Token:            trace.GenerateToken(),
+		//}
+		return nil
+	}
+
 	go miner(trace, w, args, cancelCh)
 
 	reply.ReturnToken = trace.GenerateToken()
@@ -182,7 +227,13 @@ func (w *WorkerRPCHandler) Mine(args WorkerMineArgs, reply *WorkerMineResponse) 
 func (w *WorkerRPCHandler) Found(args WorkerFoundArgs, reply *WorkerFoundResponse) error {
 	trace := w.tracer.ReceiveToken(args.Token)
 
-	//w.cache.Store(trace, args.Nonce, args.NumTrailingZeros, args.Secret)
+	trace.RecordAction(WorkerCancel{
+		Nonce:            args.Nonce,
+		NumTrailingZeros: args.NumTrailingZeros,
+		WorkerByte:       args.WorkerByte,
+	})
+	w.cache.CheckAndStore(trace, args.Nonce, args.NumTrailingZeros, args.Secret)
+
 	cancelChan, ok := w.mineTasks.get(args.Nonce, args.NumTrailingZeros, args.WorkerByte)
 	if !ok {
 		log.Fatalf("Received more than once cancellation for %s", generateWorkerTaskKey(args.Nonce, args.NumTrailingZeros, args.WorkerByte))
@@ -240,11 +291,11 @@ func miner(trace *tracing.Trace, w *WorkerRPCHandler, args WorkerMineArgs, killC
 		for _, threadByte := range threadBytes {
 			select {
 			case <-killChan:
-				trace.RecordAction(WorkerCancel{
-					Nonce:            args.Nonce,
-					NumTrailingZeros: args.NumTrailingZeros,
-					WorkerByte:       args.WorkerByte,
-				})
+				//trace.RecordAction(WorkerCancel{
+				//	Nonce:            args.Nonce,
+				//	NumTrailingZeros: args.NumTrailingZeros,
+				//	WorkerByte:       args.WorkerByte,
+				//})
 				w.resultChan <- WorkerResultToken{
 					Nonce:            args.Nonce,
 					NumTrailingZeros: args.NumTrailingZeros,
@@ -292,11 +343,11 @@ func miner(trace *tracing.Trace, w *WorkerRPCHandler, args WorkerMineArgs, killC
 				<-killChan
 
 				// and log it, which satisfies the (optional) stricter interpretation of WorkerCancel
-				trace.RecordAction(WorkerCancel{
-					Nonce:            args.Nonce,
-					NumTrailingZeros: args.NumTrailingZeros,
-					WorkerByte:       args.WorkerByte,
-				})
+				//trace.RecordAction(WorkerCancel{
+				//	Nonce:            args.Nonce,
+				//	NumTrailingZeros: args.NumTrailingZeros,
+				//	WorkerByte:       args.WorkerByte,
+				//})
 
 				// ACK the cancellation; the coordinator will be waiting for this.
 				w.resultChan <- WorkerResultToken{

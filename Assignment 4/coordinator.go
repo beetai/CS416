@@ -198,7 +198,7 @@ func (c *CoordRPCHandler) Mine(args CoordMineArgs, reply *CoordMineResponse) err
 	}
 
 	// option 1
-	//c.cache.Store(args.Nonce, args.NumTrailingZeros, result.Secret)
+	//c.cache.CheckAndStore(args.Nonce, args.NumTrailingZeros, result.Secret)
 
 	// after receiving one result, cancel all workers unconditionally.
 	// the cancellation takes place of an ACK for any workers sending results.
@@ -237,7 +237,7 @@ func (c *CoordRPCHandler) Mine(args CoordMineArgs, reply *CoordMineResponse) err
 			workerAcksReceived += 1
 		} else {
 			// option 1
-			//c.cache.Store(args.Nonce, args.NumTrailingZeros, result.Secret)
+			//c.cache.CheckAndStore(args.Nonce, args.NumTrailingZeros, result.Secret)
 			log.Printf("Dropping extra result: %v", ack)
 		}
 	}
@@ -270,7 +270,7 @@ func (c *CoordRPCHandler) Result(args CoordResultArgs, reply *CoordResultRespons
 			Secret:           args.Secret,
 		})
 		// option 2
-		c.cache.Store(trace, args.Nonce, args.NumTrailingZeros, args.Secret)
+		c.cache.CheckAndStore(trace, args.Nonce, args.NumTrailingZeros, args.Secret)
 	} else {
 		log.Printf("Received worker cancel ack: %v", args)
 	}

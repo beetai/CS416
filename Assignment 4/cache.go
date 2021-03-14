@@ -60,12 +60,25 @@ func (c *Cache) Exists(trace *tracing.Trace, nonce []uint8, trailingZeros uint) 
 
 func (c *Cache) Store(trace *tracing.Trace, nonce []uint8, trailingZeros uint, secret []uint8) {
 	key := generateCacheKey(nonce)
+	trace.RecordAction(CacheAdd{
+		Nonce:            nonce,
+		NumTrailingZeros: trailingZeros,
+		Secret:           secret,
+	})
+	c.cacheMap[key] = CacheValue{
+		secret:        secret,
+		trailingZeros: trailingZeros,
+	}
+}
+
+func (c *Cache) CheckAndStore(trace *tracing.Trace, nonce []uint8, trailingZeros uint, secret []uint8) {
+	key := generateCacheKey(nonce)
 	val, ok := c.cacheMap[key]
 	if !ok {
-		//trace.RecordAction(CacheMiss{
-		//	Nonce:            nonce,
-		//	NumTrailingZeros: trailingZeros,
-		//})
+		trace.RecordAction(CacheMiss{
+			Nonce:            nonce,
+			NumTrailingZeros: trailingZeros,
+		})
 		trace.RecordAction(CacheAdd{
 			Nonce:            nonce,
 			NumTrailingZeros: trailingZeros,
@@ -77,6 +90,11 @@ func (c *Cache) Store(trace *tracing.Trace, nonce []uint8, trailingZeros uint, s
 		}
 		return
 	}
+
+	trace.RecordAction(CacheHit{
+		Nonce:            nonce,
+		NumTrailingZeros: trailingZeros,
+	})
 
 	if bytes.Compare(secret, val.secret) > 0 {
 		trace.RecordAction(CacheRemove{
