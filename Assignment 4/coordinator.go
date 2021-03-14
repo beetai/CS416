@@ -122,7 +122,9 @@ func NewCoordinator(config CoordinatorConfig) *Coordinator {
 		}
 	}
 
-	cache := NewCache()
+	cache := Cache{
+		cacheMap: make(map[string]CacheValue),
+	}
 
 	return &Coordinator{
 		config:  config,
@@ -141,16 +143,16 @@ func (c *CoordRPCHandler) Mine(args CoordMineArgs, reply *CoordMineResponse) err
 	})
 
 	if c.cache.Exists(trace, args.Nonce, args.NumTrailingZeros) {
-		reply.NumTrailingZeros = args.NumTrailingZeros
-		reply.Nonce = args.Nonce
-		reply.Secret = c.cache.Load(args.Nonce)
-		reply.ReturnToken = trace.GenerateToken()
-
 		trace.RecordAction(CoordinatorSuccess{
 			Nonce:            reply.Nonce,
 			NumTrailingZeros: reply.NumTrailingZeros,
 			Secret:           reply.Secret,
 		})
+
+		reply.NumTrailingZeros = args.NumTrailingZeros
+		reply.Nonce = args.Nonce
+		reply.Secret = c.cache.Load(args.Nonce)
+		reply.ReturnToken = trace.GenerateToken()
 		return nil
 	}
 
@@ -166,7 +168,13 @@ func (c *CoordRPCHandler) Mine(args CoordMineArgs, reply *CoordMineResponse) err
 	c.mineTasks.set(args.Nonce, args.NumTrailingZeros, resultChan)
 
 	for _, w := range c.workers {
-		args := WorkerMineArgs{
+		trace.RecordAction(CoordinatorWorkerMine{
+			Nonce:            args.Nonce,
+			NumTrailingZeros: args.NumTrailingZeros,
+			WorkerByte:       w.workerByte,
+		})
+
+		mineArgs := WorkerMineArgs{
 			Nonce:            args.Nonce,
 			NumTrailingZeros: args.NumTrailingZeros,
 			WorkerByte:       w.workerByte,
@@ -174,14 +182,8 @@ func (c *CoordRPCHandler) Mine(args CoordMineArgs, reply *CoordMineResponse) err
 			Token:            trace.GenerateToken(),
 		}
 
-		trace.RecordAction(CoordinatorWorkerMine{
-			Nonce:            args.Nonce,
-			NumTrailingZeros: args.NumTrailingZeros,
-			WorkerByte:       args.WorkerByte,
-		})
-
 		result := WorkerMineResponse{}
-		err := w.client.Call("WorkerRPCHandler.Mine", args, &result)
+		err := w.client.Call("WorkerRPCHandler.Mine", mineArgs, &result)
 		if err != nil {
 			return err
 		}
@@ -201,21 +203,22 @@ func (c *CoordRPCHandler) Mine(args CoordMineArgs, reply *CoordMineResponse) err
 	// after receiving one result, cancel all workers unconditionally.
 	// the cancellation takes place of an ACK for any workers sending results.
 	for _, w := range c.workers {
-		args := WorkerFoundArgs{
+		trace.RecordAction(CoordinatorWorkerCancel{
+			Nonce:            args.Nonce,
+			NumTrailingZeros: args.NumTrailingZeros,
+			WorkerByte:       w.workerByte,
+		})
+
+		foundArgs := WorkerFoundArgs{
 			Nonce:            args.Nonce,
 			NumTrailingZeros: args.NumTrailingZeros,
 			WorkerByte:       w.workerByte,
 			Secret:           result.Secret,
 			Token:            trace.GenerateToken(),
 		}
-		trace.RecordAction(CoordinatorWorkerCancel{
-			Nonce:            args.Nonce,
-			NumTrailingZeros: args.NumTrailingZeros,
-			WorkerByte:       args.WorkerByte,
-		})
 
 		result := WorkerFoundResponse{}
-		err := w.client.Call("WorkerRPCHandler.Found", args, &result)
+		err := w.client.Call("WorkerRPCHandler.Found", foundArgs, &result)
 		if err != nil {
 			return err
 		}
@@ -242,16 +245,16 @@ func (c *CoordRPCHandler) Mine(args CoordMineArgs, reply *CoordMineResponse) err
 	// delete completed mine task from map
 	c.mineTasks.delete(args.Nonce, args.NumTrailingZeros)
 
-	reply.NumTrailingZeros = result.NumTrailingZeros
-	reply.Nonce = result.Nonce
-	reply.Secret = result.Secret
-	reply.ReturnToken = trace.GenerateToken()
-
 	trace.RecordAction(CoordinatorSuccess{
 		Nonce:            reply.Nonce,
 		NumTrailingZeros: reply.NumTrailingZeros,
 		Secret:           reply.Secret,
 	})
+
+	reply.NumTrailingZeros = result.NumTrailingZeros
+	reply.Nonce = result.Nonce
+	reply.Secret = result.Secret
+	reply.ReturnToken = trace.GenerateToken()
 	return nil
 }
 
@@ -260,14 +263,14 @@ func (c *CoordRPCHandler) Mine(args CoordMineArgs, reply *CoordMineResponse) err
 func (c *CoordRPCHandler) Result(args CoordResultArgs, reply *CoordResultResponse) error {
 	trace := c.tracer.ReceiveToken(args.Token)
 	if args.Secret != nil {
-		// option 2
-		c.cache.Store(trace, args.Nonce, args.NumTrailingZeros, args.Secret)
 		trace.RecordAction(CoordinatorWorkerResult{
 			Nonce:            args.Nonce,
 			NumTrailingZeros: args.NumTrailingZeros,
 			WorkerByte:       args.WorkerByte,
 			Secret:           args.Secret,
 		})
+		// option 2
+		c.cache.Store(trace, args.Nonce, args.NumTrailingZeros, args.Secret)
 	} else {
 		log.Printf("Received worker cancel ack: %v", args)
 	}

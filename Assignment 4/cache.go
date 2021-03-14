@@ -40,11 +40,6 @@ type Cache struct {
 }
 
 //key := strings.Trim(strings.Join(strings.Fields(fmt.Sprint(args.Nonce)), ""), "[]")
-func NewCache() Cache {
-	return Cache{
-		cacheMap: make(map[string]CacheValue),
-	}
-}
 
 func (c *Cache) Exists(trace *tracing.Trace, nonce []uint8, trailingZeros uint) bool {
 	key := generateCacheKey(nonce)

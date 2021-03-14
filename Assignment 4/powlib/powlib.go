@@ -137,16 +137,16 @@ func (d *POW) callMine(tracer *tracing.Tracer, nonce []uint8, numTrailingZeros u
 		d.closeWg.Done()
 	}()
 
+	trace.RecordAction(PowlibMine{
+		Nonce:            nonce,
+		NumTrailingZeros: numTrailingZeros,
+	})
+
 	args := PowlibMineArgs{
 		Nonce:            nonce,
 		NumTrailingZeros: numTrailingZeros,
 		Token:            trace.GenerateToken(),
 	}
-
-	trace.RecordAction(PowlibMine{
-		Nonce:            args.Nonce,
-		NumTrailingZeros: args.NumTrailingZeros,
-	})
 
 	result := MineResult{}
 	call := d.coordinator.Go("CoordRPCHandler.Mine", args, &result, nil)
