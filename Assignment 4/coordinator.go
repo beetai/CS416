@@ -205,6 +205,7 @@ func (c *CoordRPCHandler) Mine(args CoordMineArgs, reply *CoordMineResponse) err
 			Nonce:            args.Nonce,
 			NumTrailingZeros: args.NumTrailingZeros,
 			WorkerByte:       w.workerByte,
+			Secret:           result.Secret,
 			Token:            trace.GenerateToken(),
 		}
 		trace.RecordAction(CoordinatorWorkerCancel{

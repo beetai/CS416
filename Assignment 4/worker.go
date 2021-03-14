@@ -60,6 +60,7 @@ type WorkerFoundArgs struct {
 	Nonce            []uint8
 	NumTrailingZeros uint
 	WorkerByte       uint8
+	Secret           []uint8
 	Token            tracing.TracingToken
 }
 
