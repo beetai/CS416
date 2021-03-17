@@ -41,8 +41,6 @@ type Cache struct {
 	cacheMap map[string]CacheValue
 }
 
-//key := strings.Trim(strings.Join(strings.Fields(fmt.Sprint(args.Nonce)), ""), "[]")
-
 func (c *Cache) Exists(trace *tracing.Trace, nonce []uint8, trailingZeros uint) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -103,10 +101,28 @@ func (c *Cache) CheckAndStore(trace *tracing.Trace, nonce []uint8, trailingZeros
 		return
 	}
 
-	if bytes.Compare(secret, val.secret) > 0 {
+	if trailingZeros > val.trailingZeros {
 		trace.RecordAction(CacheMiss{
 			Nonce:            nonce,
 			NumTrailingZeros: trailingZeros,
+		})
+		trace.RecordAction(CacheAdd{
+			Nonce:            nonce,
+			NumTrailingZeros: trailingZeros,
+			Secret:           secret,
+		})
+		c.cacheMap[key] = CacheValue{
+			secret:        secret,
+			trailingZeros: trailingZeros,
+		}
+		return
+	}
+
+	if trailingZeros == val.trailingZeros && bytes.Compare(secret, val.secret) > 0 {
+		trace.RecordAction(CacheHit{
+			Nonce:            nonce,
+			NumTrailingZeros: trailingZeros,
+			Secret:           val.secret,
 		})
 		trace.RecordAction(CacheRemove{
 			Nonce:            nonce,
