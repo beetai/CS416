@@ -122,15 +122,15 @@ func NewCoordinator(config CoordinatorConfig) *Coordinator {
 		}
 	}
 
-	cache := Cache{
-		cacheMap: make(map[string]CacheValue),
-	}
+	//cache := Cache{
+	//	cacheMap: make(map[string]CacheValue),
+	//}
 
 	return &Coordinator{
 		config:  config,
 		tracer:  tracer,
 		workers: workerClients,
-		cache:   cache,
+		//cache:   cache,
 	}
 }
 
@@ -246,9 +246,9 @@ func (c *CoordRPCHandler) Mine(args CoordMineArgs, reply *CoordMineResponse) err
 	c.mineTasks.delete(args.Nonce, args.NumTrailingZeros)
 
 	trace.RecordAction(CoordinatorSuccess{
-		Nonce:            reply.Nonce,
-		NumTrailingZeros: reply.NumTrailingZeros,
-		Secret:           reply.Secret,
+		Nonce:            result.Nonce,
+		NumTrailingZeros: result.NumTrailingZeros,
+		Secret:           result.Secret,
 	})
 
 	reply.NumTrailingZeros = result.NumTrailingZeros
@@ -287,7 +287,9 @@ func (c *Coordinator) InitializeRPCs() error {
 		mineTasks: CoordinatorMineTasks{
 			tasks: make(map[string]ResultChan),
 		},
-		cache: c.cache,
+		cache: Cache{
+			cacheMap: make(map[string]CacheValue),
+		},
 	}
 	server := rpc.NewServer()
 	err := server.Register(handler) // publish Coordinator<->worker procs

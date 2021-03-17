@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"github.com/DistributedClocks/tracing"
+	"sync"
 )
 
 type CacheAdd struct {
@@ -36,12 +37,16 @@ type CacheValue struct {
 }
 
 type Cache struct {
+	mu       sync.Mutex
 	cacheMap map[string]CacheValue
 }
 
 //key := strings.Trim(strings.Join(strings.Fields(fmt.Sprint(args.Nonce)), ""), "[]")
 
 func (c *Cache) Exists(trace *tracing.Trace, nonce []uint8, trailingZeros uint) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	key := generateCacheKey(nonce)
 	val, ok := c.cacheMap[key]
 	if !ok || trailingZeros > val.trailingZeros {
@@ -54,11 +59,15 @@ func (c *Cache) Exists(trace *tracing.Trace, nonce []uint8, trailingZeros uint) 
 	trace.RecordAction(CacheHit{
 		Nonce:            nonce,
 		NumTrailingZeros: trailingZeros,
+		Secret:           val.secret,
 	})
 	return true
 }
 
 func (c *Cache) Store(trace *tracing.Trace, nonce []uint8, trailingZeros uint, secret []uint8) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	key := generateCacheKey(nonce)
 	trace.RecordAction(CacheAdd{
 		Nonce:            nonce,
@@ -72,6 +81,9 @@ func (c *Cache) Store(trace *tracing.Trace, nonce []uint8, trailingZeros uint, s
 }
 
 func (c *Cache) CheckAndStore(trace *tracing.Trace, nonce []uint8, trailingZeros uint, secret []uint8) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	key := generateCacheKey(nonce)
 	val, ok := c.cacheMap[key]
 	if !ok {
@@ -94,6 +106,7 @@ func (c *Cache) CheckAndStore(trace *tracing.Trace, nonce []uint8, trailingZeros
 	trace.RecordAction(CacheHit{
 		Nonce:            nonce,
 		NumTrailingZeros: trailingZeros,
+		Secret:           secret,
 	})
 
 	if bytes.Compare(secret, val.secret) > 0 {
@@ -115,6 +128,9 @@ func (c *Cache) CheckAndStore(trace *tracing.Trace, nonce []uint8, trailingZeros
 }
 
 func (c *Cache) Load(nonce []uint8) []uint8 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	key := generateCacheKey(nonce)
 	if val, ok := c.cacheMap[key]; ok {
 		return val.secret
