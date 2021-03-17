@@ -238,6 +238,28 @@ func (c *CoordRPCHandler) Mine(args CoordMineArgs, reply *CoordMineResponse) err
 		} else {
 			// option 1
 			//c.cache.CheckAndStore(args.Nonce, args.NumTrailingZeros, result.Secret)
+			for _, w := range c.workers {
+				trace.RecordAction(CoordinatorWorkerCancel{
+					Nonce:            args.Nonce,
+					NumTrailingZeros: args.NumTrailingZeros,
+					WorkerByte:       w.workerByte,
+				})
+
+				foundArgs := WorkerFoundArgs{
+					Nonce:            args.Nonce,
+					NumTrailingZeros: args.NumTrailingZeros,
+					WorkerByte:       w.workerByte,
+					Secret:           ack.Secret,
+					Token:            trace.GenerateToken(),
+				}
+
+				result := WorkerFoundResponse{}
+				err := w.client.Call("WorkerRPCHandler.Found", foundArgs, &result)
+				if err != nil {
+					return err
+				}
+				c.tracer.ReceiveToken(result.ReturnToken)
+			}
 			log.Printf("Dropping extra result: %v", ack)
 		}
 	}

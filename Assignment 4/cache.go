@@ -103,13 +103,11 @@ func (c *Cache) CheckAndStore(trace *tracing.Trace, nonce []uint8, trailingZeros
 		return
 	}
 
-	trace.RecordAction(CacheHit{
-		Nonce:            nonce,
-		NumTrailingZeros: trailingZeros,
-		Secret:           secret,
-	})
-
 	if bytes.Compare(secret, val.secret) > 0 {
+		trace.RecordAction(CacheMiss{
+			Nonce:            nonce,
+			NumTrailingZeros: trailingZeros,
+		})
 		trace.RecordAction(CacheRemove{
 			Nonce:            nonce,
 			NumTrailingZeros: val.trailingZeros,
@@ -124,7 +122,14 @@ func (c *Cache) CheckAndStore(trace *tracing.Trace, nonce []uint8, trailingZeros
 			secret:        secret,
 			trailingZeros: trailingZeros,
 		}
+		return
 	}
+
+	trace.RecordAction(CacheHit{
+		Nonce:            nonce,
+		NumTrailingZeros: trailingZeros,
+		Secret:           val.secret,
+	})
 }
 
 func (c *Cache) Load(nonce []uint8) []uint8 {

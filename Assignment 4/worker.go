@@ -114,9 +114,9 @@ func NewWorker(config WorkerConfig) *Worker {
 		log.Fatal("failed to dail Coordinator:", err)
 	}
 
-	cache := Cache{
-		cacheMap: make(map[string]CacheValue),
-	}
+	//cache := Cache{
+	//	cacheMap: make(map[string]CacheValue),
+	//}
 
 	return &Worker{
 		config:        config,
@@ -124,7 +124,7 @@ func NewWorker(config WorkerConfig) *Worker {
 		Coordinator:   coordClient,
 		mineTasks:     make(map[string]CancelChan),
 		ResultChannel: make(chan WorkerResultToken),
-		cache:         cache,
+		//cache:         cache,
 	}
 }
 
@@ -137,7 +137,9 @@ func (w *Worker) InitializeWorkerRPCs() error {
 			tasks: make(map[string]CancelChan),
 		},
 		resultChan: w.ResultChannel,
-		cache:      w.cache,
+		cache: Cache{
+			cacheMap: make(map[string]CacheValue),
+		},
 	})
 
 	// publish Worker RPCs
@@ -236,7 +238,9 @@ func (w *WorkerRPCHandler) Found(args WorkerFoundArgs, reply *WorkerFoundRespons
 
 	cancelChan, ok := w.mineTasks.get(args.Nonce, args.NumTrailingZeros, args.WorkerByte)
 	if !ok {
-		log.Fatalf("Received more than once cancellation for %s", generateWorkerTaskKey(args.Nonce, args.NumTrailingZeros, args.WorkerByte))
+		//log.Fatalf("Received more than once cancellation for %s", generateWorkerTaskKey(args.Nonce, args.NumTrailingZeros, args.WorkerByte))
+		reply.ReturnToken = trace.GenerateToken()
+		return nil
 	}
 	cancelChan <- struct{}{}
 	// delete the task here, and the worker should terminate + send something back very soon
